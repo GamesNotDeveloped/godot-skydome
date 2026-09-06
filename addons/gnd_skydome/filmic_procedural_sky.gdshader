@@ -66,6 +66,8 @@ group_uniforms Moon;
 	uniform float moon_eclipse_size : hint_range(0.0, 4.0) = 2.5;
 	uniform float moon_glow_size : hint_range(0.1, 4.0) = 1.0;
 
+uniform bool high_quality_sky = true;
+
 group_uniforms Clouds;
 	uniform vec2 cloud_scroll_a = vec2(0.0012, 0.00015);
 	uniform vec2 cloud_scroll_b = vec2(-0.0018, 0.0004);
@@ -157,98 +159,21 @@ float get_solar_disk_scale(float sun_alt) {
 	return dist_factor * atmospheric_scale;
 }
 
-float gaussian_lobe(float angle_deg, float center_deg, float width_deg) {
-	float normalized_offset = (angle_deg - center_deg) / max(width_deg, 0.001);
-	return exp(-0.5 * normalized_offset * normalized_offset);
-}
-
-float get_water_refractive_index(float wavelength_nm) {
-	// Visible-band Cauchy fit for liquid water, wavelength in micrometers.
-	float wavelength_um = wavelength_nm * 0.001;
-	float wavelength_sq = wavelength_um * wavelength_um;
-	return 1.32518 + 0.00285 / max(wavelength_sq, 0.000001);
-}
-
-float get_primary_rainbow_radius_deg(float refractive_index) {
-	float cos_i_sq = clamp((refractive_index * refractive_index - 1.0) / 3.0, 0.0, 0.999999);
-	float incidence_angle = acos(sqrt(cos_i_sq));
-	float refraction_angle = asin(sin(incidence_angle) / refractive_index);
-	return degrees(4.0 * refraction_angle - 2.0 * incidence_angle);
-}
-
-float get_secondary_rainbow_radius_deg(float refractive_index) {
-	float cos_i_sq = clamp((refractive_index * refractive_index - 1.0) / 8.0, 0.0, 0.999999);
-	float incidence_angle = acos(sqrt(cos_i_sq));
-	float refraction_angle = asin(sin(incidence_angle) / refractive_index);
-	return degrees(2.0 * incidence_angle - 6.0 * refraction_angle + PI);
-}
-
-vec3 wavelength_to_linear_srgb(float wavelength_nm) {
-	float r = 0.0;
-	float g = 0.0;
-	float b = 0.0;
-
-	if (wavelength_nm >= 380.0 && wavelength_nm < 440.0) {
-		r = -(wavelength_nm - 440.0) / 60.0;
-		b = 1.0;
-	} else if (wavelength_nm < 490.0) {
-		g = (wavelength_nm - 440.0) / 50.0;
-		b = 1.0;
-	} else if (wavelength_nm < 510.0) {
-		g = 1.0;
-		b = -(wavelength_nm - 510.0) / 20.0;
-	} else if (wavelength_nm < 580.0) {
-		r = (wavelength_nm - 510.0) / 70.0;
-		g = 1.0;
-	} else if (wavelength_nm < 645.0) {
-		r = 1.0;
-		g = -(wavelength_nm - 645.0) / 65.0;
-	} else if (wavelength_nm <= 780.0) {
-		r = 1.0;
-	}
-
-	float edge_fade = 1.0;
-	if (wavelength_nm < 420.0) {
-		edge_fade = 0.3 + 0.7 * (wavelength_nm - 380.0) / 40.0;
-	} else if (wavelength_nm > 700.0) {
-		edge_fade = 0.3 + 0.7 * (780.0 - wavelength_nm) / 80.0;
-	}
-
-	vec3 srgb = clamp(vec3(r, g, b) * edge_fade, vec3(0.0), vec3(1.0));
-	return pow(srgb, vec3(2.2));
-}
-
-vec3 get_rainbow_spectral_sample(float scattering_angle_deg, float wavelength_nm, float width_deg, float rainbow_order) {
-	float refractive_index = get_water_refractive_index(wavelength_nm);
-	float center_deg = get_primary_rainbow_radius_deg(refractive_index);
-	if (rainbow_order > 1.5) {
-		center_deg = get_secondary_rainbow_radius_deg(refractive_index);
-	}
-	return wavelength_to_linear_srgb(wavelength_nm) * gaussian_lobe(scattering_angle_deg, center_deg, width_deg);
-}
-
-vec3 get_primary_rainbow_spectrum(float scattering_angle_deg) {
-	vec3 spectrum = vec3(0.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 410.0, 0.26, 1.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 450.0, 0.24, 1.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 485.0, 0.23, 1.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 530.0, 0.22, 1.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 575.0, 0.23, 1.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 610.0, 0.24, 1.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 650.0, 0.26, 1.0);
-	return spectrum * 1.1;
-}
-
-vec3 get_secondary_rainbow_spectrum(float scattering_angle_deg) {
-	vec3 spectrum = vec3(0.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 410.0, 0.46, 2.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 450.0, 0.44, 2.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 485.0, 0.42, 2.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 530.0, 0.40, 2.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 575.0, 0.42, 2.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 610.0, 0.44, 2.0);
-	spectrum += get_rainbow_spectral_sample(scattering_angle_deg, 650.0, 0.46, 2.0);
-	return spectrum * 0.7;
+// FAST RAINBOW APPROXIMATION
+vec3 get_fast_rainbow_color(float angle_deg, float center_deg, float width_deg) {
+	float t = (angle_deg - center_deg) / width_deg;
+	if (abs(t) > 1.0) return vec3(0.0);
+	
+	// Spectral color approximation
+	vec3 c = clamp(vec3(
+		smoothstep(0.0, 0.4, t) * (1.0 - smoothstep(0.7, 1.0, t)), // Red/Orange
+		smoothstep(0.3, 0.6, t) * (1.0 - smoothstep(0.8, 0.9, t)), // Green
+		smoothstep(0.6, 0.9, t)                                   // Blue/Violet
+	), 0.0, 1.0);
+	
+	// Shape of the lobe
+	float envelope = exp(-4.0 * t * t);
+	return c * envelope;
 }
 
 void sky() {
@@ -287,60 +212,86 @@ void sky() {
 	night_base *= night_sky_energy;
 
 	vec3 final_color = mix(night_base, day_base, day_blend);
-	vec3 active_sun_color = mix(sun_color, sunset_sun_color, sunset_blend);
 	float sun_dot = dot(dir, custom_sun_dir);
 
+	if (!high_quality_sky) {
+		float sun_disk = smoothstep(0.998, 1.0, sun_dot);
+		final_color += sun_color * sun_disk * 5.0;
+	} else {
+
+	vec3 active_sun_color = mix(sun_color, sunset_sun_color, sunset_blend);
+
 	vec3 celestial_dir = celestial_matrix * dir;
-	vec3 star_p = celestial_dir * 250.0;
-	vec3 star_i = floor(star_p);
-	vec3 star_f = fract(star_p);
-	float star_h = fract(sin(dot(star_i, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
-	vec3 star_pos = vec3(fract(star_h * 34.34), fract(star_h * 12.34), fract(star_h * 45.34));
-	float star_d = length(star_f - star_pos);
-	float star_size = mix(stars_size_min, stars_size_max, fract(star_h * 11.11));
-	float star_aa = max(fwidth(star_d) * stars_edge_softness, 0.003);
-	float star_core = 1.0 - smoothstep(star_size - star_aa, star_size + star_aa, star_d);
-	float star_intensity = star_core * smoothstep(0.95, 0.96, star_h);
-	float twinkle = mix(0.3, 1.0, sin(cloud_time * 3.0 + star_h * 100.0) * 0.5 + 0.5);
-	float sun_star_occlusion = smoothstep(0.92, 0.9985, sun_dot);
-	float stars = star_intensity * twinkle * 8.0 * pow(1.0 - zenith_t, 2.0) * (1.0 - sun_star_occlusion);
-	final_color += stars_color * stars * stars_energy * (1.0 - day_blend);
-
-	vec2 cloud_uv = dir_to_cloud_plane_uv(dir, cloud_plane_height, cloud_plane_curve);
-	vec2 wind_dir = normalize(max(abs(cloud_wind_direction.x) + abs(cloud_wind_direction.y), 0.0001) * cloud_wind_direction);
-	float motion_time = cloud_motion_time;
-	vec2 scroll_a = wind_dir * length(cloud_scroll_a);
-	vec2 scroll_b = wind_dir * length(cloud_scroll_b) * 1.35;
-	vec2 warp = texture(cloud_tex_b, cloud_uv * 0.01).rg * 2.0 - 1.0;
-	cloud_uv += warp * cloud_warp_strength;
-
-	vec2 evolution_uv = cloud_uv * cloud_evolution_scale;
-	vec2 evolution_flow_a = vec2(0.011, -0.007) * cloud_evolution_time;
-	vec2 evolution_flow_b = vec2(-0.009, 0.013) * cloud_evolution_time;
-	float evolution_a = texture(cloud_tex_a, evolution_uv + evolution_flow_a).r;
-	float evolution_b = texture(cloud_tex_b, evolution_uv * 1.83 + evolution_flow_b).r;
-	vec2 evolution_warp = (vec2(evolution_a, evolution_b) - 0.5) * cloud_evolution_strength;
-	cloud_uv += evolution_warp;
-
-	float cloud_a = texture(cloud_tex_a, cloud_uv * cloud_scale_a + scroll_a * motion_time).r;
-	float cloud_b = texture(cloud_tex_b, cloud_uv * cloud_scale_b + scroll_b * motion_time).r;
-	float breakup = texture(cloud_tex_b, cloud_uv * 0.04).r;
-
-	float cloud_shape = mix(cloud_a, cloud_b, 0.5);
-	cloud_shape = mix(cloud_shape, cloud_shape * breakup, 0.4);
-	float evolution_signed = (mix(evolution_a, evolution_b, 0.45) * 2.0 - 1.0) * cloud_evolution_strength;
-	float evolved_coverage = clamp(cloud_coverage + evolution_signed * (cloud_softness * 1.4 + 0.08), 0.0, 1.0);
-	float cloud_mask = 0.0;
-	if (evolved_coverage >= 0.9999) {
-		cloud_mask = 1.0;
-	} else if (evolved_coverage > 0.0001) {
-		float cloud_threshold = 1.0 - evolved_coverage;
-		cloud_mask = smoothstep(cloud_threshold - cloud_softness, cloud_threshold + cloud_softness, cloud_shape);
+	if (day_blend < 0.99 && stars_energy > 0.001) {
+		vec3 star_p = celestial_dir * 250.0;
+		vec3 star_i = floor(star_p);
+		vec3 star_f = fract(star_p);
+		float star_h = fract(sin(dot(star_i, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+		vec3 star_pos = vec3(fract(star_h * 34.34), fract(star_h * 12.34), fract(star_h * 45.34));
+		float star_d = length(star_f - star_pos);
+		float star_size = mix(stars_size_min, stars_size_max, fract(star_h * 11.11));
+		float star_aa = max(fwidth(star_d) * stars_edge_softness, 0.003);
+		float star_core = 1.0 - smoothstep(star_size - star_aa, star_size + star_aa, star_d);
+		float star_intensity = star_core * smoothstep(0.95, 0.96, star_h);
+		float twinkle = mix(0.3, 1.0, sin(cloud_time * 3.0 + star_h * 100.0) * 0.5 + 0.5);
+		float sun_star_occlusion = smoothstep(0.92, 0.9985, sun_dot);
+		float stars = star_intensity * twinkle * 8.0 * pow(1.0 - zenith_t, 2.0) * (1.0 - sun_star_occlusion);
+		final_color += stars_color * stars * stars_energy * (1.0 - day_blend);
 	}
 
-	float horizon_mask = smoothstep(-0.1, cloud_horizon_fade, dir.y);
-	float top_mask = 1.0 - smoothstep(1.0 - cloud_top_fade, 1.0, max(dir.y, 0.0));
-	cloud_mask *= horizon_mask * top_mask * cloud_opacity;
+	vec2 cloud_uv = dir_to_cloud_plane_uv(dir, cloud_plane_height, cloud_plane_curve);
+	float cloud_mask = 0.0;
+	float cloud_shape = 0.0;
+	float evolution_a = 0.0;
+	float evolution_b = 0.0;
+
+	if (cloud_opacity > 0.001) {
+		vec2 wind_dir = normalize(max(abs(cloud_wind_direction.x) + abs(cloud_wind_direction.y), 0.0001) * cloud_wind_direction);
+		float motion_time = cloud_motion_time;
+		vec2 scroll_a = wind_dir * length(cloud_scroll_a);
+		vec2 scroll_b = wind_dir * length(cloud_scroll_b) * 1.35;
+
+		if (high_quality_sky) {
+			vec2 warp = texture(cloud_tex_b, cloud_uv * 0.01).rg * 2.0 - 1.0;
+			cloud_uv += warp * cloud_warp_strength;
+
+			vec2 evolution_uv = cloud_uv * cloud_evolution_scale;
+			vec2 evolution_flow_a = vec2(0.011, -0.007) * cloud_evolution_time;
+			vec2 evolution_flow_b = vec2(-0.009, 0.013) * cloud_evolution_time;
+			evolution_a = texture(cloud_tex_a, evolution_uv + evolution_flow_a).r;
+			evolution_b = texture(cloud_tex_b, evolution_uv * 1.83 + evolution_flow_b).r;
+			vec2 evolution_warp = (vec2(evolution_a, evolution_b) - 0.5) * cloud_evolution_strength;
+			cloud_uv += evolution_warp;
+		}
+
+		float cloud_a = texture(cloud_tex_a, cloud_uv * cloud_scale_a + scroll_a * motion_time).r;
+		float cloud_b = texture(cloud_tex_b, cloud_uv * cloud_scale_b + scroll_b * motion_time).r;
+		
+		if (high_quality_sky) {
+			float breakup = texture(cloud_tex_b, cloud_uv * 0.04).r;
+			cloud_shape = mix(cloud_a, cloud_b, 0.5);
+			cloud_shape = mix(cloud_shape, cloud_shape * breakup, 0.4);
+		} else {
+			cloud_shape = mix(cloud_a, cloud_b, 0.5);
+		}
+
+		float evolution_signed = 0.0;
+		if (high_quality_sky) {
+			evolution_signed = (mix(evolution_a, evolution_b, 0.45) * 2.0 - 1.0) * cloud_evolution_strength;
+		}
+		float evolved_coverage = clamp(cloud_coverage + evolution_signed * (cloud_softness * 1.4 + 0.08), 0.0, 1.0);
+		
+		if (evolved_coverage >= 0.9999) {
+			cloud_mask = 1.0;
+		} else if (evolved_coverage > 0.0001) {
+			float cloud_threshold = 1.0 - evolved_coverage;
+			cloud_mask = smoothstep(cloud_threshold - cloud_softness, cloud_threshold + cloud_softness, cloud_shape);
+		}
+
+		float horizon_mask = smoothstep(-0.1, cloud_horizon_fade, dir.y);
+		float top_mask = 1.0 - smoothstep(1.0 - cloud_top_fade, 1.0, max(dir.y, 0.0));
+		cloud_mask *= horizon_mask * top_mask * cloud_opacity;
+	}
 
 	float sky_visibility = 1.0 - (cloud_mask * sun_cloud_occlusion);
 	float horizon_air = 1.0 - smoothstep(atmosphere_horizon_level, atmosphere_horizon_level + atmosphere_height, dir.y);
@@ -369,11 +320,13 @@ void sky() {
 	float rainbow_horizon_visibility = smoothstep(-0.02, 0.08, dir.y);
 	float rainbow_sky_visibility = smoothstep(0.15, 0.95, sky_visibility);
 	float rainbow_visibility = rainbow_intensity * rainbow_day_visibility * rainbow_altitude_visibility * rainbow_horizon_visibility * rainbow_sky_visibility;
-	vec3 primary_rainbow = get_primary_rainbow_spectrum(scattering_angle_deg);
-	vec3 secondary_rainbow = get_secondary_rainbow_spectrum(scattering_angle_deg);
-	float alexander_band = smoothstep(43.0, 46.5, scattering_angle_deg) * (1.0 - smoothstep(49.5, 52.5, scattering_angle_deg));
-	final_color *= 1.0 - alexander_band * rainbow_visibility * 0.05;
-	final_color += (primary_rainbow + secondary_rainbow * rainbow_secondary_intensity) * rainbow_visibility * 1.2;
+	if (rainbow_visibility > 0.001) {
+		vec3 primary_rainbow = get_fast_rainbow_color(scattering_angle_deg, 42.0, 1.5);
+		vec3 secondary_rainbow = get_fast_rainbow_color(scattering_angle_deg, 51.0, 3.0);
+		float alexander_band = smoothstep(43.0, 46.5, scattering_angle_deg) * (1.0 - smoothstep(49.5, 52.5, scattering_angle_deg));
+		final_color *= 1.0 - alexander_band * rainbow_visibility * 0.05;
+		final_color += (primary_rainbow + secondary_rainbow * rainbow_secondary_intensity) * rainbow_visibility * 2.5;
+	}
 
 	// Sun
 	vec3 sun_dir_norm = custom_sun_dir;
@@ -484,6 +437,7 @@ void sky() {
 	vec3 cloud_col = mix(toned_cloud_shadow_color * mix(0.02, 1.0, day_blend), active_light_color, saturate(0.1 + silver_lining - backscatter_val));
 
 	final_color = mix(final_color, cloud_col, cloud_mask);
+	}
 
 	if (AT_CUBEMAP_PASS) {
 		vec3 gi_base = mix(night_base, day_base, day_blend);

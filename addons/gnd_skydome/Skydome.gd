@@ -63,6 +63,12 @@ func _success(x):
         _update_sun_transform()
 @export var time_transition_duration: float = 1.0
 
+@export_group("Performance")
+@export var shader_high_quality_sky: bool = true:
+    set(v):
+        shader_high_quality_sky = v
+        _set_shader_param("high_quality_sky", v)
+
 @export_group("Sunset", "sunset")
 @export_subgroup("Light", "sunset_light")
 @export var sunset_light_color: Color = Color(1.0, 0.45, 0.15):
@@ -840,6 +846,7 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("atmosphere_sunset_boost", shader_atmosphere_sunset_boost)
     _sky_material.set_shader_parameter("rainbow_intensity", rainbow_intensity)
     _sky_material.set_shader_parameter("rainbow_secondary_intensity", rainbow_secondary_intensity)
+    _sky_material.set_shader_parameter("high_quality_sky", shader_high_quality_sky)
 
     _sky_material.set_shader_parameter("sunset_bottom_color", shader_sunset_bottom_color)
     _sky_material.set_shader_parameter("sunset_horizon_color", shader_sunset_horizon_color)
@@ -1231,6 +1238,9 @@ func _get_all_compositors() -> Array[Compositor]:
 func _install_sunshafts_compositor_effect() -> void:
     _remove_sunshafts_compositor_effect()
 
+    if not sunshafts_enabled:
+        return
+
     var compositor := _get_compositor()
     if not compositor:
         var has_target := false
@@ -1279,8 +1289,17 @@ func _remove_sunshafts_compositor_effect() -> void:
     _compositor_effect = null
 
 func _update_effect() -> void:
+    if not sunshafts_enabled:
+        if _compositor_effect:
+            _remove_sunshafts_compositor_effect()
+        return
+
+    if not _compositor_effect:
+        _install_sunshafts_compositor_effect()
+
     if not _compositor_effect:
         return
+
     _viewport_size = _get_active_viewport_size()
     _camera = _find_active_camera()
     _light = _get_directional_light()
@@ -1301,7 +1320,7 @@ func _update_effect() -> void:
     _compositor_effect.set("dither_strength", sunshafts_perf_dither_strength)
 
 func _process_sunshafts() -> void:
-    if _compositor_effect and _camera and _light:
+    if sunshafts_enabled and _compositor_effect and _camera and _light:
         var sun_dir = _light.global_transform.basis.z.normalized()
         var sun_world_pos = _camera.global_position + (sun_dir * sunshafts_distance)
         var screen_pos = _camera.unproject_position(sun_world_pos)
