@@ -563,6 +563,11 @@ func _success(x):
         _update_sun_transform()
 
 @export_group("Fog")
+enum FogModeOverride { UNMANAGED, EXPONENTIAL, DEPTH }
+@export var fog_mode: FogModeOverride = FogModeOverride.UNMANAGED:
+    set(v):
+        fog_mode = v
+        _update_sun_transform()
 @export_range(0.0, 1.0, 0.001) var fog_density: float = 0.0:
     set(v):
         var next := clampf(v, 0.0, 1.0)
@@ -1124,6 +1129,11 @@ func _update_sun_transform() -> void:
         env.ambient_light_energy = lerp( night_ambient_energy,  day_ambient_energy, pow(_day_blend, 0.5)) + _sunset_blend * 0.8
 
         var fog_day_mix =  night_fog_color.lerp( day_fog_color, _day_blend)
+        match fog_mode:
+            FogModeOverride.EXPONENTIAL:
+                env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+            FogModeOverride.DEPTH:
+                env.fog_mode = Environment.FOG_MODE_DEPTH
         env.fog_light_color = fog_day_mix.lerp(sunset_light_color, _sunset_blend * 0.5)
         env.fog_density = lerp( night_fog_density,  day_fog_density, _day_blend)
         env.fog_sky_affect = lerp( night_fog_sky_affect,  day_fog_sky_affect, _day_blend)
