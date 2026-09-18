@@ -39,6 +39,9 @@ func _error(x):
 func _success(x):
     print_rich("[color=green][Skydome][/color] "+x)
 
+## Takes the SkydomeSettings project settings (gnd_skydome/*) over this node's own values on ready.
+@export var apply_project_settings: bool = false
+
 @export_node_path("DirectionalLight3D") var directional_light_path: NodePath:
     set(v):
         directional_light_path = v
@@ -470,6 +473,10 @@ func _success(x):
         sunshafts_enabled = v
         _update_effect()
 @export var sunshafts_distance: float = 3000.0
+@export_range(0.0, 4.0, 0.01, "or_greater") var sunshafts_intensity: float = 1.0:
+    set(v):
+        sunshafts_intensity = v
+        _update_effect()
 @export var sunshafts_moon_color: Color = Color(0.6, 0.7, 1.0, 1.0):
     set(v):
         sunshafts_moon_color = v
@@ -649,6 +656,9 @@ enum FogModeOverride { UNMANAGED, EXPONENTIAL, DEPTH }
 
 
 func _ready() -> void:
+    if apply_project_settings:
+        for property in SkydomeSettings.PROPERTIES:
+            set(property, SkydomeSettings.get_value(property))
     _rendered_day = day_of_year
     _rendered_time = time_of_day
     _is_ready = true
@@ -1154,6 +1164,8 @@ func _update_sun_transform() -> void:
     else:
         _apply_state_params(null, light)
     _apply_cloud_light_response(light)
+    # Sunshafts fade with cloud coverage and day blend, which change here.
+    _update_effect()
 
 
 func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
@@ -1181,7 +1193,9 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     _set_shader_param("sun_cloud_occlusion", clampf(clouds_sun_occlusion + sky_overcast * 0.42, 0.0, 0.98))
     _set_shader_param("sky_energy", maxf(0.02, shader_sky_energy * (1.0 - sky_overcast * 0.46) + current_lightning_flash * storm_flash_sky_energy))
     _set_shader_param("night_sky_energy", maxf(0.02, shader_night_sky_energy * (1.0 - sky_overcast * 0.34) + current_lightning_flash * storm_flash_night_sky_energy))
-    _set_shader_param("stars_energy", maxf(0.0, shader_stars_energy * (1.0 - cloud_mix * 0.98)))
+    # Stars are hidden by cloud coverage too; the shader fades clouds out towards the zenith,
+    # where stars are the brightest, so the cloud layer alone doesn't occlude them.
+    _set_shader_param("stars_energy", maxf(0.0, shader_stars_energy * (1.0 - sky_overcast * 0.98)))
     _set_shader_param("moon_color", moon_color.lerp(Color(0.045, 0.05, 0.06, 1.0), cloud_mix * 0.96))
     _set_shader_param("moon_size", lerpf(moon_size, moon_size * 0.72, cloud_mix * 0.85))
     _set_shader_param("moon_glow_strength", maxf(0.0, moon_glow_strength * (1.0 - cloud_mix * 0.96)))
@@ -1324,7 +1338,7 @@ func _update_effect() -> void:
     _compositor_effect.set("bright_threshold", sunshafts_bright_threshold)
     _compositor_effect.set("weight", sunshafts_weight * shafts_visibility * lerpf(1.5, 1.0, _day_blend))
     _compositor_effect.set("decay", sunshafts_decay)
-    _compositor_effect.set("exposure", sunshafts_exposure * shafts_visibility * lerpf(1.3, 1.0, _day_blend))
+    _compositor_effect.set("exposure", sunshafts_exposure * sunshafts_intensity * shafts_visibility * lerpf(1.3, 1.0, _day_blend))
     _compositor_effect.set("max_radius", sunshafts_max_radius)
     _compositor_effect.set("sample_count", sunshafts_perf_sample_count)
     _compositor_effect.set("dither_strength", sunshafts_perf_dither_strength)
