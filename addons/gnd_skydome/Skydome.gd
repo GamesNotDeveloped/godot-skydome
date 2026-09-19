@@ -509,6 +509,19 @@ func _success(x):
     set(v):
         sunshafts_max_radius = v
         _update_effect()
+@export_subgroup("Clouds", "sunshafts_cloud")
+## How much full cloud cover dims the shafts (0 - not at all, 1 - almost completely)
+@export_range(0.0, 1.0, 0.001) var sunshafts_cloud_occlusion: float = 0.85:
+    set(v):
+        sunshafts_cloud_occlusion = clampf(v, 0.0, 1.0)
+        _update_effect()
+## Shape of that dimming: 1 is linear, below 1 keeps the shafts visible longer under clouds,
+## above 1 makes them disappear sooner
+@export_range(0.1, 4.0, 0.01) var sunshafts_cloud_falloff: float = 1.0:
+    set(v):
+        sunshafts_cloud_falloff = maxf(v, 0.1)
+        _update_effect()
+
 @export_subgroup("Performance", "sunshafts_perf")
 @export_range(4, 100) var sunshafts_perf_sample_count: int = 8:
     set(v):
@@ -1330,13 +1343,16 @@ func _update_effect() -> void:
 
     var current_base_color = sunshafts_moon_color.lerp(sunshafts_shaft_color, _day_blend)
 
-    var cloud_occlusion := clampf(_get_final_cloud_density() * 0.85, 0.0, 0.96)
-    var shafts_visibility := 1.0 - cloud_occlusion
+    var cloud_occlusion := clampf(_get_final_cloud_density() * sunshafts_cloud_occlusion, 0.0, 0.96)
+    # only the exposure follows the cloud cover fully - dimming the density and the weight by the
+    # same factor as well made the shafts vanish far too quickly
+    var shafts_visibility := pow(1.0 - cloud_occlusion, sunshafts_cloud_falloff)
+    var shafts_softness := sqrt(shafts_visibility)
 
     _compositor_effect.set("shaft_color", current_base_color.lerp(Color(0.72, 0.74, 0.78, 1.0), cloud_occlusion * 0.5))
-    _compositor_effect.set("density", sunshafts_density * shafts_visibility * lerpf(0.7, 1.0, _day_blend))
+    _compositor_effect.set("density", sunshafts_density * shafts_softness * lerpf(0.7, 1.0, _day_blend))
     _compositor_effect.set("bright_threshold", sunshafts_bright_threshold)
-    _compositor_effect.set("weight", sunshafts_weight * shafts_visibility * lerpf(1.5, 1.0, _day_blend))
+    _compositor_effect.set("weight", sunshafts_weight * shafts_softness * lerpf(1.5, 1.0, _day_blend))
     _compositor_effect.set("decay", sunshafts_decay)
     _compositor_effect.set("exposure", sunshafts_exposure * sunshafts_intensity * shafts_visibility * lerpf(1.3, 1.0, _day_blend))
     _compositor_effect.set("max_radius", sunshafts_max_radius)
