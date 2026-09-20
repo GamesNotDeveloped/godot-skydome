@@ -14,6 +14,7 @@ const PROPERTIES: Array[StringName] = [
     &"day_vol_fog_density",
     &"shader_night_sky_energy",
     &"night_vol_fog_density",
+    &"vol_fog_density_boost",
     &"clouds_color_shadow",
     &"clouds_shadow_angular_distance_clear",
     &"clouds_evolution_strength",
@@ -24,6 +25,9 @@ const PROPERTIES: Array[StringName] = [
     &"moon_glow_strength",
     &"moon_glow_size",
     &"shader_atmosphere_sunset_boost",
+    &"day_full_elevation",
+    &"sunset_fade_start_elevation",
+    &"sunset_fade_end_elevation",
     &"sunshafts_enabled",
     &"sunshafts_intensity",
 ]

@@ -20,6 +20,11 @@ group_uniforms Atmosphere;
 	uniform float atmosphere_density : hint_range(0.0, 2.0) = 0.46;
 	uniform float atmosphere_sun_scatter : hint_range(0.0, 2.0) = 0.34;
 	uniform float atmosphere_sunset_boost : hint_range(0.0, 3.0) = 1.35;
+	// sine of the sun elevation the sunset colours start to fade at / are gone above (Skydome.gd)
+	// sine of the sun elevation the day values are reached in full at (Skydome.gd)
+	uniform float day_full_altitude = 0.1045;
+	uniform float sunset_fade_start = 0.0698;
+	uniform float sunset_fade_end = 0.1736;
 
 group_uniforms Rainbow;
 	uniform float rainbow_intensity : hint_range(0.0, 2.0) = 0.0;
@@ -182,8 +187,8 @@ void sky() {
 	float sun_alt = custom_sun_dir.y;
 
 	// ALIGNED WITH GDSCRIPT FOR BETTER DAWN/DUSK
-	float day_blend = smoothstep(-0.2, 0.3, sun_alt);
-	float sunset_blend = smoothstep(-0.2, 0.05, sun_alt) * (1.0 - smoothstep(0.1, 0.4, sun_alt));
+	float day_blend = smoothstep(-0.2, day_full_altitude, sun_alt);
+	float sunset_blend = smoothstep(-0.2, 0.05, sun_alt) * (1.0 - smoothstep(sunset_fade_start, sunset_fade_end, sun_alt));
 
 	float horizon_t = smoothstep(horizon_height - horizon_softness, horizon_height + horizon_softness, dir.y);
 	float zenith_t = pow(saturate(max(dir.y, 0.0)), zenith_curve);

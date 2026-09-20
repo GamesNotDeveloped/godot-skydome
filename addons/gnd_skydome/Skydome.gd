@@ -8,6 +8,13 @@ signal day_changed(day: int)
 const SUN_SHAFTS_EFFECT_SCRIPT := preload("res://addons/gnd_skydome/SunShaftsCompositorEffect.gd")
 const FILMIC_SKY_SHADER := preload("res://addons/gnd_skydome/filmic_procedural_sky.gdshader")
 const EDITOR_ACCESS_SCRIPT_PATH := "res://addons/gnd_skydome/EditorAccess.gd"
+# The fog_density boost of the volumetric fog (vol_fog_density_boost) is tuned for the default fog
+# distances below. A fog set to reach further has to be thinner in front of the camera too, so the
+# boost follows the current fog distance; at the defaults it is unchanged.
+const VOL_FOG_BOOST_DAY_DISTANCE := 470.0
+const VOL_FOG_BOOST_NIGHT_DISTANCE := 200.0
+# Share of the volumetric fog length a full fog_density boost takes away
+const VOL_FOG_LENGTH_SHRINK := 0.8
 
 var _environment: Environment
 var _rendered_day: int = 180
@@ -73,6 +80,17 @@ func _success(x):
         _set_shader_param("high_quality_sky", v)
 
 @export_group("Sunset", "sunset")
+## Sun elevation the sunset colours start to fade at and are gone above. Light reddens noticeably
+## only below a few degrees; a wide window (it used to reach 23.6 degrees) keeps a whole winter day
+## at mid latitudes orange, where the sun never climbs higher.
+@export_range(0.0, 45.0, 0.1, "suffix:°") var sunset_fade_start_elevation: float = 4.0:
+    set(v):
+        sunset_fade_start_elevation = v
+        _sync_sunset_fade()
+@export_range(0.0, 45.0, 0.1, "suffix:°") var sunset_fade_end_elevation: float = 10.0:
+    set(v):
+        sunset_fade_end_elevation = v
+        _sync_sunset_fade()
 @export_subgroup("Light", "sunset_light")
 @export var sunset_light_color: Color = Color(1.0, 0.45, 0.15):
     set(v):
@@ -89,6 +107,15 @@ func _success(x):
     set(v): shader_sunset_cloud_color = v; _set_shader_param("sunset_cloud_color", v)
 
 @export_group("Day", "day")
+## Sun elevation the day values are reached in full at; below it they blend with the night ones
+## (down to 11.5 degrees under the horizon). It used to be 17.5 degrees, which a winter sun at mid
+## latitudes stays under for most of the day - an early afternoon then already took a share of the
+## night fog, which is many times denser.
+@export_range(0.0, 45.0, 0.1, "suffix:°") var day_full_elevation: float = 6.0:
+    set(v):
+        day_full_elevation = v
+        _set_shader_param("day_full_altitude", _get_day_full_altitude())
+        _update_sun_transform()
 @export_subgroup("Light", "day_light")
 @export var day_light_energy: float = 1.28:
     set(v):
@@ -596,6 +623,11 @@ enum FogModeOverride { UNMANAGED, EXPONENTIAL, DEPTH }
         fog_density = next
         _update_sun_transform()
         _update_effect()
+## Extinction per metre a full fog_density adds to the volumetric fog, at the default fog distances
+@export_range(0.0, 1.0, 0.001, "or_greater") var vol_fog_density_boost: float = 0.05:
+    set(v):
+        vol_fog_density_boost = v
+        _update_sun_transform()
 @export_range(0.0, 1.0, 0.001) var fog_sky_affect_intensity: float = 1.0:
     set(v):
         fog_sky_affect_intensity = v
@@ -851,6 +883,25 @@ func _init_sky() -> void:
     _reset_cloud_time_tracking()
 
 
+func _get_day_full_altitude() -> float:
+    return sin(deg_to_rad(day_full_elevation))
+
+
+## The fade window as the sine of the elevation, which is what the sun altitude is compared in
+func _get_sunset_fade_start() -> float:
+    return sin(deg_to_rad(sunset_fade_start_elevation))
+
+
+func _get_sunset_fade_end() -> float:
+    return sin(deg_to_rad(maxf(sunset_fade_end_elevation, sunset_fade_start_elevation + 0.1)))
+
+
+func _sync_sunset_fade() -> void:
+    _set_shader_param("sunset_fade_start", _get_sunset_fade_start())
+    _set_shader_param("sunset_fade_end", _get_sunset_fade_end())
+    _update_sun_transform()
+
+
 func _set_shader_param(param_name: String, value: Variant) -> void:
     if _sky_material:
         _sky_material.set_shader_parameter(param_name, value)
@@ -872,6 +923,9 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("atmosphere_density", shader_atmosphere_density)
     _sky_material.set_shader_parameter("atmosphere_sun_scatter", shader_atmosphere_sun_scatter)
     _sky_material.set_shader_parameter("atmosphere_sunset_boost", shader_atmosphere_sunset_boost)
+    _sky_material.set_shader_parameter("day_full_altitude", _get_day_full_altitude())
+    _sky_material.set_shader_parameter("sunset_fade_start", _get_sunset_fade_start())
+    _sky_material.set_shader_parameter("sunset_fade_end", _get_sunset_fade_end())
     _sky_material.set_shader_parameter("rainbow_intensity", rainbow_intensity)
     _sky_material.set_shader_parameter("rainbow_secondary_intensity", rainbow_secondary_intensity)
     _sky_material.set_shader_parameter("high_quality_sky", shader_high_quality_sky)
@@ -1124,8 +1178,10 @@ func _update_sun_transform() -> void:
     var s_alt = sun_dir.y
     var m_alt = moon_dir.y
 
-    _day_blend = smoothstep(-0.2, 0.3, s_alt)
-    _sunset_blend = smoothstep(-0.2, 0.05, s_alt) * (1.0 - smoothstep(0.1, 0.4, s_alt))
+    _day_blend = smoothstep(-0.2, _get_day_full_altitude(), s_alt)
+    _sunset_blend = smoothstep(-0.2, 0.05, s_alt) * (
+        1.0 - smoothstep(_get_sunset_fade_start(), _get_sunset_fade_end(), s_alt)
+    )
 
     var sun_energy = day_light_energy * smoothstep(-0.05, 0.08, s_alt)
     var moon_energy = night_light_energy * smoothstep(0.0, 0.05, m_alt) * (1.0 - smoothstep(-0.1, 0.0, s_alt))
@@ -1190,9 +1246,15 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     var base_vol_fog_density := lerpf(night_vol_fog_density, day_vol_fog_density, _day_blend)
 
     var fog_density_boost := clampf(fog_density, 0.0, 1.0)
-    var vol_fog_density_boost := clampf(fog_density * 0.05, 0.0, 1.0)
+    var vol_fog_boost_distance_scale := (
+        lerpf(VOL_FOG_BOOST_NIGHT_DISTANCE, VOL_FOG_BOOST_DAY_DISTANCE, _day_blend)
+        / maxf(lerpf(night_fog_distance, day_fog_distance, _day_blend), 1.0)
+    )
+    var current_vol_fog_density_boost := clampf(
+        fog_density * vol_fog_density_boost * vol_fog_boost_distance_scale, 0.0, 1.0
+    )
     var current_fog_density := clampf(base_fog_density + fog_density_boost, 0.0, 1.5)
-    var current_vol_fog_density := clampf(base_vol_fog_density + vol_fog_density_boost, 0.0, 1.0)
+    var current_vol_fog_density := clampf(base_vol_fog_density + current_vol_fog_density_boost, 0.0, 1.0)
 
     var cloud_mix := clampf(current_cloud_overcast_intensity * 0.8, 0.0, 1.0)
     var final_cloud_density := _get_final_cloud_density()
@@ -1227,10 +1289,26 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     env.fog_density = current_fog_density
     env.fog_sky_affect = lerpf(env.fog_sky_affect, 1.0, fog_sky_affect_intensity * fog_density_boost)
 
-    env.volumetric_fog_density = current_vol_fog_density
-
     env.volumetric_fog_sky_affect = lerpf(env.volumetric_fog_sky_affect, 1.0, vol_fog_sky_affect_intensity * fog_density_boost)
-    env.volumetric_fog_length = maxf(2.0, env.volumetric_fog_length * (1.0 - fog_density_boost * 0.8))
+    # A denser fog is computed over a shorter volume in front of the camera, and what that volume
+    # lets through depends on density times length: left alone it thickens up to a boost of about
+    # 0.6 and thins out again above it, pulsing against the depth fog, which only grows. Past that
+    # peak the density makes up for the shortening, so the fog holds what it reached; below the
+    # peak nothing changes.
+    var vol_fog_boost_per_meter := maxf(vol_fog_density_boost * vol_fog_boost_distance_scale, 0.000001)
+    var peak_boost := clampf(
+        (vol_fog_boost_per_meter - VOL_FOG_LENGTH_SHRINK * base_vol_fog_density)
+        / (2.0 * VOL_FOG_LENGTH_SHRINK * vol_fog_boost_per_meter),
+        0.0, 1.0
+    )
+    var held_boost := minf(fog_density_boost, peak_boost)
+    var full_vol_fog_length := env.volumetric_fog_length
+    var vol_fog_optical_depth := (
+        (base_vol_fog_density + vol_fog_boost_per_meter * held_boost)
+        * full_vol_fog_length * (1.0 - VOL_FOG_LENGTH_SHRINK * held_boost)
+    )
+    env.volumetric_fog_length = maxf(2.0, full_vol_fog_length * (1.0 - VOL_FOG_LENGTH_SHRINK * fog_density_boost))
+    env.volumetric_fog_density = vol_fog_optical_depth / env.volumetric_fog_length
 
     var base_emission := Color(0, 0, 0)
     var volumetric_emission := base_emission * current_storm_fog_emission_scale
