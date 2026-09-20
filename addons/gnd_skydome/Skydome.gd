@@ -421,6 +421,12 @@ func _success(x):
     set(v):
         clouds_backscatter = v
         _set_shader_param("cloud_backscatter", v)
+## Share of the sun's or the moon's light a full cloud cover takes away. Without it an overcast
+## night stays moonlit: the clouds cooled the light and softened its shadows, but never dimmed it.
+@export_range(0.0, 1.0, 0.01) var clouds_light_occlusion: float = 0.65:
+    set(v):
+        clouds_light_occlusion = v
+        _update_sun_transform()
 @export var clouds_sun_occlusion: float = 0.406:
     set(v):
         clouds_sun_occlusion = v
@@ -1276,6 +1282,7 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     _set_shader_param("moon_glow_strength", maxf(0.0, moon_glow_strength * (1.0 - cloud_mix * 0.96)))
 
     if light:
+        light.light_energy *= 1.0 - sky_overcast * clouds_light_occlusion
         light.light_energy += current_lightning_flash * lerpf(storm_flash_light_energy_clear, storm_flash_light_energy_overcast, sky_overcast)
         light.light_color = light.light_color.lerp(Color(0.58, 0.62, 0.68, 1.0), overcast_cooling * 0.94)
         light.light_color = light.light_color.lerp(storm_flash_light_color, current_lightning_flash * 0.8)

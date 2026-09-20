@@ -15,6 +15,7 @@ const PROPERTIES: Array[StringName] = [
     &"shader_night_sky_energy",
     &"night_vol_fog_density",
     &"vol_fog_density_boost",
+    &"clouds_light_occlusion",
     &"clouds_color_shadow",
     &"clouds_shadow_angular_distance_clear",
     &"clouds_evolution_strength",
