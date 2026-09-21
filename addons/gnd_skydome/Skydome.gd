@@ -709,7 +709,9 @@ enum FogModeOverride { UNMANAGED, EXPONENTIAL, DEPTH }
 func _ready() -> void:
     if apply_project_settings:
         for property in SkydomeSettings.PROPERTIES:
-            set(property, SkydomeSettings.get_value(property))
+            # keep what the property was initialised with where the setting does not exist,
+            # which is every exported build (see SkydomeSettings.get_value())
+            set(property, SkydomeSettings.get_value(property, get(property)))
     _rendered_day = day_of_year
     _rendered_time = time_of_day
     _is_ready = true
