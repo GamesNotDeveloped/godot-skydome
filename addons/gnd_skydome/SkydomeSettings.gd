@@ -45,7 +45,13 @@ static func register() -> void:
         ProjectSettings.set_initial_value(setting, default_value)
 
 
-## Project setting value, or the Skydome property default when it isn't set.
-static func get_value(property: StringName) -> Variant:
-    var skydome_script: Script = load("res://addons/gnd_skydome/Skydome.gd")
-    return ProjectSettings.get_setting(PREFIX + property, skydome_script.get_property_default_value(property))
+## Project setting value, or [param fallback] when it isn't set.
+##
+## The settings only exist where register() has run, which is the editor - an EditorPlugin is the
+## only kind Godot loads, so an exported game has none of them unless they were written into
+## project.godot, and set_initial_value() deliberately keeps the untouched ones out of that file.
+## The fallback must therefore not come from Script.get_property_default_value(): that returns
+## **null** for every property of a script compiled into an exported pck, because the default only
+## exists in the source. Callers pass their own current value, which is the property's initialiser.
+static func get_value(property: StringName, fallback: Variant = null) -> Variant:
+    return ProjectSettings.get_setting(PREFIX + property, fallback)
