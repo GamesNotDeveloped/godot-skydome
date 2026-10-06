@@ -2,6 +2,25 @@
 class_name SunShaftsCompositorEffect
 extends CompositorEffect
 
+## Copies the colour the effect writes into the texture it samples. The scene's colour has no
+## CAN_COPY_FROM usage, so it cannot go through texture_copy().
+const COPY_SHADER_CODE := """
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba16f, set = 0, binding = 0) uniform restrict readonly image2D color_image;
+layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D source_copy;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, imageSize(color_image)))) {
+        return;
+    }
+    imageStore(source_copy, pixel, imageLoad(color_image, pixel));
+}
+"""
+
 const SHADER_CODE := """
 #version 450
 
@@ -214,6 +233,13 @@ var rd: RenderingDevice
 var shader: RID
 var pipeline: RID
 var sampler: RID
+## The colour the shader samples. It is never the image it writes: D3D12 refuses a texture bound
+## as a sampler and a storage image in one dispatch and removes the device, and on Vulkan the
+## shader would read pixels other invocations have already overwritten.
+var _source_copy: RID
+var _source_copy_size := Vector2i.ZERO
+var copy_shader: RID
+var copy_pipeline: RID
 var _mutex := Mutex.new()
 
 func _init() -> void:
@@ -227,25 +253,25 @@ func _init() -> void:
 func _notification(what: int) -> void:
     if what == NOTIFICATION_PREDELETE:
         if rd != null:
+            if _source_copy.is_valid():
+                rd.free_rid(_source_copy)
             if sampler.is_valid():
                 rd.free_rid(sampler)
             if pipeline.is_valid():
                 rd.free_rid(pipeline)
             if shader.is_valid():
                 rd.free_rid(shader)
+            if copy_pipeline.is_valid():
+                rd.free_rid(copy_pipeline)
+            if copy_shader.is_valid():
+                rd.free_rid(copy_shader)
 
 func _initialize_shader() -> void:
     if rd == null:
         return
-    var shader_file := RDShaderSource.new()
-    shader_file.language = RenderingDevice.SHADER_LANGUAGE_GLSL
-    shader_file.source_compute = SHADER_CODE
-    var shader_spirv := rd.shader_compile_spirv_from_source(shader_file)
-    if shader_spirv.compile_error_compute != "":
-        push_error(shader_spirv.compile_error_compute)
-        return
-    shader = rd.shader_create_from_spirv(shader_spirv)
-    if not shader.is_valid():
+    shader = _compile_compute_shader(SHADER_CODE)
+    copy_shader = _compile_compute_shader(COPY_SHADER_CODE)
+    if not shader.is_valid() or not copy_shader.is_valid():
         return
     var sampler_state := RDSamplerState.new()
     sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
@@ -254,9 +280,20 @@ func _initialize_shader() -> void:
     sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
     sampler = rd.sampler_create(sampler_state)
     pipeline = rd.compute_pipeline_create(shader)
+    copy_pipeline = rd.compute_pipeline_create(copy_shader)
+
+func _compile_compute_shader(code: String) -> RID:
+    var shader_file := RDShaderSource.new()
+    shader_file.language = RenderingDevice.SHADER_LANGUAGE_GLSL
+    shader_file.source_compute = code
+    var shader_spirv := rd.shader_compile_spirv_from_source(shader_file)
+    if shader_spirv.compile_error_compute != "":
+        push_error(shader_spirv.compile_error_compute)
+        return RID()
+    return rd.shader_create_from_spirv(shader_spirv)
 
 func _render_callback(callback_type: int, render_data: RenderData) -> void:
-    if rd == null or not pipeline.is_valid():
+    if rd == null or not pipeline.is_valid() or not copy_pipeline.is_valid():
         return
     if callback_type != EFFECT_CALLBACK_TYPE_POST_TRANSPARENT:
         return
@@ -275,18 +312,40 @@ func _render_callback(callback_type: int, render_data: RenderData) -> void:
     var view_count := render_scene_buffers.get_view_count()
 
     for view in range(view_count):
-        var source_color: RID
-        if render_scene_buffers.has_texture("render_buffers", "resolved_color"):
-            source_color = render_scene_buffers.get_texture("render_buffers", "resolved_color")
-        else:
-            source_color = render_scene_buffers.get_color_layer(view)
-
         # GET THE DEPTH LAYER EXACTLY FOR THIS VIEW
         var source_depth := render_scene_buffers.get_depth_layer(view)
         var color_image := render_scene_buffers.get_color_layer(view)
 
-        if not color_image.is_valid() or not source_color.is_valid() or not source_depth.is_valid():
+        if not color_image.is_valid() or not source_depth.is_valid():
             continue
+
+        if not _source_copy.is_valid() or not _source_copy_size == size:
+            if _source_copy.is_valid():
+                rd.free_rid(_source_copy)
+            var copy_format := RDTextureFormat.new()
+            copy_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+            copy_format.width = size.x
+            copy_format.height = size.y
+            copy_format.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT
+            _source_copy = rd.texture_create(copy_format, RDTextureView.new())
+            _source_copy_size = size
+
+        var copy_from_uniform := RDUniform.new()
+        copy_from_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+        copy_from_uniform.binding = 0
+        copy_from_uniform.add_id(color_image)
+
+        var copy_to_uniform := RDUniform.new()
+        copy_to_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+        copy_to_uniform.binding = 1
+        copy_to_uniform.add_id(_source_copy)
+
+        var copy_uniform_set := UniformSetCacheRD.get_cache(copy_shader, 0, [copy_from_uniform, copy_to_uniform])
+        var copy_list := rd.compute_list_begin()
+        rd.compute_list_bind_compute_pipeline(copy_list, copy_pipeline)
+        rd.compute_list_bind_uniform_set(copy_list, copy_uniform_set, 0)
+        rd.compute_list_dispatch(copy_list, x_groups, y_groups, 1)
+        rd.compute_list_end()
 
         var push_constant := PackedFloat32Array([
             float(size.x), float(size.y),
@@ -302,7 +361,7 @@ func _render_callback(callback_type: int, render_data: RenderData) -> void:
         source_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
         source_uniform.binding = 0
         source_uniform.add_id(sampler)
-        source_uniform.add_id(source_color)
+        source_uniform.add_id(_source_copy)
 
         var depth_uniform := RDUniform.new()
         depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
