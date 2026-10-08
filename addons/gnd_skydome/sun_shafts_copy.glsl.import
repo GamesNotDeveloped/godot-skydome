@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bnh1whyfc0mft"
+path="res://.godot/imported/sun_shafts_copy.glsl-3603be52d0b25ab034740d8426757c04.res"
+
+[deps]
+
+source_file="res://addons/gnd_skydome/sun_shafts_copy.glsl"
+dest_files=["res://.godot/imported/sun_shafts_copy.glsl-3603be52d0b25ab034740d8426757c04.res"]
+
+[params]
+

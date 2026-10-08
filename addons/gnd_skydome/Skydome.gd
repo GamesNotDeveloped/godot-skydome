@@ -5,7 +5,7 @@ extends Node
 signal time_changed(day: int, time: float)
 signal day_changed(day: int)
 
-const SUN_SHAFTS_EFFECT_SCRIPT := preload("res://addons/gnd_skydome/SunShaftsCompositorEffect.gd")
+const SUN_SHAFTS_EFFECT_SCRIPT = preload("SunShaftsCompositorEffect.gd")
 const FILMIC_SKY_SHADER := preload("res://addons/gnd_skydome/filmic_procedural_sky.gdshader")
 const EDITOR_ACCESS_SCRIPT_PATH := "res://addons/gnd_skydome/EditorAccess.gd"
 # The fog_density boost of the volumetric fog (vol_fog_density_boost) is tuned for the default fog
@@ -28,7 +28,7 @@ var _last_cloud_total_hours: float = 0.0
 var _cloud_motion_time: float = 0.0
 var _cloud_evolution_time: float = 0.0
 var _sky_material: ShaderMaterial
-var _compositor_effect: CompositorEffect
+var _compositor_effect: SunShaftsCompositorEffect
 var _light: DirectionalLight3D
 var _is_ready: bool = false
 var _is_daytime: bool = true
@@ -738,14 +738,13 @@ func apply_wind_now() -> void:
     _update_cloud_wind()
 
 func _refresh() -> void:
-    if not is_inside_tree():
+    if not is_inside_tree() or not _is_ready:
         return
 
     _camera = _find_active_camera()
     _environment = _get_environment()
     _light = _get_directional_light()
 
-    _remove_sunshafts_compositor_effect()
     _install_sunshafts_compositor_effect()
     _init_sky()
     _update_sun_transform()
@@ -883,9 +882,6 @@ func _init_sky() -> void:
     _cloud_texture_b.noise.frequency = clouds_generator_frequency_b * 0.01
 
     _environment.sky.sky_material = _sky_material
-
-    if not _compositor_effect:
-        _install_sunshafts_compositor_effect()
 
     _sync_sky_shader_params()
     _reset_cloud_time_tracking()
@@ -1362,7 +1358,8 @@ func _get_all_compositors() -> Array[Compositor]:
 func _install_sunshafts_compositor_effect() -> void:
     _remove_sunshafts_compositor_effect()
 
-    if not sunshafts_enabled:
+    # Exported setters also run during _ready's settings import, before the targets are bound.
+    if not sunshafts_enabled or not _is_ready:
         return
 
     var compositor := _get_compositor()
@@ -1390,7 +1387,6 @@ func _install_sunshafts_compositor_effect() -> void:
         _set_compositor(compositor)
 
     _compositor_effect = SUN_SHAFTS_EFFECT_SCRIPT.new()
-    _compositor_effect.set("sun_visible", true)
     var effects = compositor.compositor_effects
     effects.insert(0, _compositor_effect)
     compositor.compositor_effects = effects
@@ -1447,11 +1443,17 @@ func _update_effect() -> void:
     _compositor_effect.set("dither_strength", sunshafts_perf_dither_strength)
 
 func _process_sunshafts() -> void:
-    if sunshafts_enabled and _compositor_effect and _camera and _light:
-        var sun_dir = _light.global_transform.basis.z.normalized()
-        var sun_world_pos = _camera.global_position + (sun_dir * sunshafts_distance)
-        var screen_pos = _camera.unproject_position(sun_world_pos)
-        _compositor_effect.set("sun_screen_uv", Vector2(screen_pos.x / _viewport_size.x, screen_pos.y / _viewport_size.y))
+    if not _compositor_effect:
+        return
+    var visible: bool = false
+    if _camera and _light and _viewport_size.x > 0.0 and _viewport_size.y > 0.0:
+        var sun_dir: Vector3 = _light.global_transform.basis.z.normalized()
+        var sun_world_pos: Vector3 = _camera.global_position + sun_dir * sunshafts_distance
+        if not _camera.is_position_behind(sun_world_pos):
+            var sun_uv: Vector2 = _camera.unproject_position(sun_world_pos) / _viewport_size
+            visible = sun_uv.is_finite()
+            _compositor_effect.sun_screen_uv = sun_uv
+    _compositor_effect.sun_visible = visible
 
 func _find_active_camera() -> Camera3D:
     if not is_inside_tree(): return null
