@@ -15,6 +15,9 @@ const VOL_FOG_BOOST_DAY_DISTANCE := 470.0
 const VOL_FOG_BOOST_NIGHT_DISTANCE := 200.0
 # Share of the volumetric fog length a full fog_density boost takes away
 const VOL_FOG_LENGTH_SHRINK := 0.8
+# The grey an overcast takes the ambient light to. Never brighter than the ambient light itself: a
+# night's ambient is a tenth of it, and the fixed grey lit an overcast night up like a dull day.
+const OVERCAST_AMBIENT_COLOR := Color(0.38, 0.41, 0.46, 1.0)
 
 var _environment: Environment
 var _rendered_day: int = 180
@@ -1288,7 +1291,10 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     if env == null:
         return
 
-    env.ambient_light_color = env.ambient_light_color.lerp(Color(0.38, 0.41, 0.46, 1.0), overcast_cooling * 0.82)
+    var overcast_ambient_color := OVERCAST_AMBIENT_COLOR * minf(
+        1.0, env.ambient_light_color.get_luminance() / OVERCAST_AMBIENT_COLOR.get_luminance())
+    overcast_ambient_color.a = 1.0
+    env.ambient_light_color = env.ambient_light_color.lerp(overcast_ambient_color, overcast_cooling * 0.82)
     env.ambient_light_energy *= maxf(0.18, 1.0 - (sky_overcast * 0.24))
 
     env.fog_density = current_fog_density
