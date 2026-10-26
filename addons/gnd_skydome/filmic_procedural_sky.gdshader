@@ -70,6 +70,8 @@ group_uniforms Moon;
 	uniform float moon_glow_strength : hint_range(0.0, 10.0) = 1.0;
 	uniform float moon_eclipse_size : hint_range(0.0, 4.0) = 2.5;
 	uniform float moon_glow_size : hint_range(0.1, 4.0) = 1.0;
+	// Moonlight through a thin cloud: a soft corona on the clouds around the moon
+	uniform float moon_corona_strength : hint_range(0.0, 2.0) = 0.2;
 
 uniform bool high_quality_sky = true;
 
@@ -295,6 +297,9 @@ void sky() {
 
 		float horizon_mask = smoothstep(-0.1, cloud_horizon_fade, dir.y);
 		float top_mask = 1.0 - smoothstep(1.0 - cloud_top_fade, 1.0, max(dir.y, 0.0));
+		// An overcast covers the zenith too: the fade leaves the stars a gap only in a broken sky,
+		// a full cover with a hole over the head let the moon's disc through it
+		top_mask = mix(top_mask, 1.0, smoothstep(0.6, 1.0, cloud_coverage));
 		cloud_mask *= horizon_mask * top_mask * cloud_opacity;
 	}
 
@@ -423,9 +428,13 @@ void sky() {
 	float glow_intensity = pow(saturate(moon_dot), 1.0 / (0.1 * moon_glow_size)) * max(0.0, moon_glow_strength);
 	vec3 glow_color = moon_color * glow_intensity * (0.1 + 0.9 * moon_illumination) * (1.0 - day_blend * 0.8);
 
-	final_color = mix(final_color, final_moon_color, moon_alpha * sky_visibility);
+	// The moon's disc is far brighter than the clouds (bright_color), so the share a cloud lets
+	// through falls off with its thickness, not linearly - 10% of the disc showed through a full
+	// overcast as a grey moon
+	float moon_visibility = pow(1.0 - cloud_mask, 4.0);
+	final_color = mix(final_color, final_moon_color, moon_alpha * moon_visibility);
 	//final_color += glow_color * sky_visibility * 10.0;
-	final_color += glow_color * sky_visibility;
+	final_color += glow_color * moon_visibility;
 
 	// Clouds
 	vec3 active_light_dir = mix(custom_moon_dir, custom_sun_dir, day_blend);
@@ -440,6 +449,10 @@ void sky() {
 	vec3 cloud_moon_light = moon_color * 0.1;
 	vec3 active_light_color = mix(cloud_moon_light, cloud_sun_light, day_blend) * toned_cloud_light_color;
 	vec3 cloud_col = mix(toned_cloud_shadow_color * mix(0.02, 1.0, day_blend), active_light_color, saturate(0.1 + silver_lining - backscatter_val));
+	// A thin cloud in front of the moon glows around it instead of showing its disc; a thick
+	// cover (cloud_density_tint) takes the corona away as well
+	float corona = pow(saturate(moon_dot), 1.0 / (0.02 * moon_glow_size)) * moon_illumination * (1.0 - day_blend);
+	cloud_col += moon_color * corona * moon_corona_strength * (1.0 - cloud_density_tint);
 
 	final_color = mix(final_color, cloud_col, cloud_mask);
 	}

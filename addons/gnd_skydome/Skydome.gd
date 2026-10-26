@@ -494,6 +494,11 @@ func _success(x):
     set(v):
         moon_glow_strength = v
         _set_shader_param("moon_glow_strength", v)
+## The soft corona a thin cloud in front of the moon glows with, gone under a thick cover
+@export var moon_corona_strength: float = 0.2:
+    set(v):
+        moon_corona_strength = v
+        _set_shader_param("moon_corona_strength", v)
 @export var moon_eclipse_size: float = 0.8:
     set(v):
         moon_eclipse_size = v
@@ -967,6 +972,7 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("moon_color", moon_color)
     _sky_material.set_shader_parameter("moon_size", moon_size)
     _sky_material.set_shader_parameter("moon_glow_strength", moon_glow_strength)
+    _sky_material.set_shader_parameter("moon_corona_strength", moon_corona_strength)
     _sky_material.set_shader_parameter("moon_eclipse_size", moon_eclipse_size)
     _sky_material.set_shader_parameter("moon_glow_size", moon_glow_size)
     _sky_material.set_shader_parameter("moon_texture", moon_texture)

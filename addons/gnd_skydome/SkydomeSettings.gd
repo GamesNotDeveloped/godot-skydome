@@ -25,6 +25,7 @@ const PROPERTIES: Array[StringName] = [
     &"sun_atmosphere_strength",
     &"moon_glow_strength",
     &"moon_glow_size",
+    &"moon_corona_strength",
     &"shader_atmosphere_sunset_boost",
     &"day_full_elevation",
     &"sunset_fade_start_elevation",
