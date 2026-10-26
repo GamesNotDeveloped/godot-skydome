@@ -646,6 +646,14 @@ enum FogModeOverride { UNMANAGED, EXPONENTIAL, DEPTH }
     set(v):
         fog_sky_affect_intensity = v
         _update_sun_transform()
+## The sky's fog thickening towards the horizon as a fog layer's does: at an elevation of θ the
+## sky takes the environment's fog_sky_affect / sin(θ)^curve of the fog, up to its fog_density at
+## the horizon - what the terrain at the fog's end takes, so nothing there stands out brighter or
+## darker than the sky behind it. 0 leaves one fog_sky_affect over the whole sky.
+@export_range(0.0, 8.0, 0.01) var fog_sky_horizon_curve: float = 0.0:
+    set(v):
+        fog_sky_horizon_curve = v
+        _update_sun_transform()
 @export_range(0.0, 1.0, 0.001) var vol_fog_sky_affect_intensity: float = 1.0:
     set(v):
         vol_fog_sky_affect_intensity = v
@@ -1338,6 +1346,14 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
         env.ambient_light_energy += current_lightning_flash * (storm_flash_ambient_energy_base + sky_overcast * storm_flash_ambient_energy_overcast_boost)
         env.fog_light_color = env.fog_light_color.lerp(storm_flash_fog_color, current_lightning_flash * 0.7)
         env.volumetric_fog_albedo = env.volumetric_fog_albedo.lerp(storm_flash_volumetric_color, current_lightning_flash * storm_flash_volumetric_blend)
+
+    # The fog the sky takes towards the horizon (fog_sky_horizon_curve) in the colour Godot fogs
+    # it with (sky.cpp: the fog light colour in linear times its energy)
+    var horizon_fog_color := env.fog_light_color.srgb_to_linear() * env.fog_light_energy
+    _set_shader_param("horizon_fog_color", Vector3(horizon_fog_color.r, horizon_fog_color.g, horizon_fog_color.b))
+    _set_shader_param("horizon_fog_curve", fog_sky_horizon_curve if env.fog_enabled else 0.0)
+    _set_shader_param("horizon_fog_sky_affect", env.fog_sky_affect)
+    _set_shader_param("horizon_fog_density", clampf(env.fog_density, 0.0, 1.0))
 
 
 func _get_all_compositors() -> Array[Compositor]:

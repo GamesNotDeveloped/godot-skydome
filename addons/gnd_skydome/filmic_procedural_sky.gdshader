@@ -75,6 +75,15 @@ group_uniforms Moon;
 
 uniform bool high_quality_sky = true;
 
+group_uniforms HorizonFog;
+	// Set by Skydome (fog_sky_horizon_curve): the fog's colour as Godot fogs the sky with it, the
+	// share Godot lays over the whole sky and the density the terrain at the fog's end takes
+	uniform vec3 horizon_fog_color = vec3(0.0);
+	uniform float horizon_fog_curve = 0.0;
+	uniform float horizon_fog_sky_affect = 0.0;
+	uniform float horizon_fog_density = 0.0;
+group_uniforms;
+
 group_uniforms Clouds;
 	uniform vec2 cloud_scroll_a = vec2(0.0012, 0.00015);
 	uniform vec2 cloud_scroll_b = vec2(-0.0018, 0.0004);
@@ -455,6 +464,15 @@ void sky() {
 	cloud_col += moon_color * corona * moon_corona_strength * (1.0 - cloud_density_tint);
 
 	final_color = mix(final_color, cloud_col, cloud_mask);
+	}
+
+	// A fog layer's: at an elevation of θ the sky takes horizon_fog_sky_affect / sin(θ)^curve of the
+	// fog, the terrain's horizon_fog_density at the horizon. Godot mixes its horizon_fog_sky_affect
+	// in after this (sky.glsl), so the sky is brought here only up to the rest of it.
+	if (!AT_CUBEMAP_PASS && horizon_fog_curve > 0.0 && horizon_fog_density > horizon_fog_sky_affect) {
+		float layer_fog = min(horizon_fog_density, horizon_fog_sky_affect / pow(max(dir.y, 0.001), horizon_fog_curve));
+		float horizon_fog = 1.0 - (1.0 - layer_fog) / max(1.0 - horizon_fog_sky_affect, 0.001);
+		final_color = mix(final_color, horizon_fog_color, clamp(horizon_fog, 0.0, 1.0));
 	}
 
 	if (AT_CUBEMAP_PASS) {
