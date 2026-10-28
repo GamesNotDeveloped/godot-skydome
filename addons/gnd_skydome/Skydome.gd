@@ -18,8 +18,10 @@ const VOL_FOG_LENGTH_SHRINK := 0.8
 # The grey an overcast takes the ambient light to. Never brighter than the ambient light itself: a
 # night's ambient is a tenth of it, and the fixed grey lit an overcast night up like a dull day.
 const OVERCAST_AMBIENT_COLOR := Color(0.38, 0.41, 0.46, 1.0)
-# The share of the sunrise's and the sunset's light the fog takes, clear or overcast
-const FOG_SUNSET_SHARE := 0.5
+# The share of the sunrise's and the sunset's light the fog takes all round, clear or overcast - the
+# rest it takes towards the sun (fog_sunset_sun_scatter): the sky takes the fog's colour over the
+# whole dome, and half of the sunset's orange greyed the blue overhead and the twilight opposite it
+const FOG_SUNSET_SHARE := 0.15
 # How overcast the sky is when its cover starts to grey the sunset out, and when the sunset is gone
 # behind it (the sky shader's overcast_veil, sky_atmosphere.gdshaderinc)
 const OVERCAST_VEIL_START := 0.35
@@ -724,6 +726,18 @@ enum FogModeOverride { UNMANAGED, EXPONENTIAL, DEPTH }
 @export_range(0.0, 1.0, 0.0001) var fog_sky_horizon_height: float = 0.0:
     set(v):
         fog_sky_horizon_height = v
+        _update_sun_transform()
+## The environment's fog_sun_scatter: the fog brightened by the sun's light towards it, the
+## terrain's and the sky's alike (Godot's fog of both, and the sky's horizon, fog_sky_horizon_curve)
+@export_range(0.0, 2.0, 0.001) var fog_sun_scatter: float = 0.0:
+    set(v):
+        fog_sun_scatter = v
+        _update_sun_transform()
+## What the sunrise and the sunset add to fog_sun_scatter: their light lies in the fog towards the
+## sun, not all round - the fog over the whole sky took it and greyed the dome orange
+@export_range(0.0, 2.0, 0.001) var fog_sunset_sun_scatter: float = 0.5:
+    set(v):
+        fog_sunset_sun_scatter = v
         _update_sun_transform()
 @export_range(0.0, 1.0, 0.001) var vol_fog_sky_affect_intensity: float = 1.0:
     set(v):
@@ -1480,6 +1494,16 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     _set_shader_param("horizon_fog_height", fog_sky_horizon_height)
     _set_shader_param("horizon_fog_sky_affect", env.fog_sky_affect)
     _set_shader_param("horizon_fog_density", clampf(env.fog_density, 0.0, 1.0))
+    # ...brightened towards the light as Godot's fog is (sky.glsl fog_process(): the light's colour in
+    # linear times its energy, pow(cos, 8) * PI of it times fog_sun_scatter)
+    env.fog_sun_scatter = fog_sun_scatter + fog_sunset_sun_scatter * sunset_seen
+    var horizon_fog_sun := Color(0.0, 0.0, 0.0)
+    var horizon_fog_sun_direction := Vector3.UP
+    if light and light.visible:
+        horizon_fog_sun = light.light_color.srgb_to_linear() * light.light_energy * env.fog_sun_scatter * PI
+        horizon_fog_sun_direction = light.global_transform.basis.z.normalized()
+    _set_shader_param("horizon_fog_sun_color", Vector3(horizon_fog_sun.r, horizon_fog_sun.g, horizon_fog_sun.b))
+    _set_shader_param("horizon_fog_sun_direction", horizon_fog_sun_direction)
     if clouds_renderer and _sky_material:
         clouds_renderer.sync(self, _sky_material)
 

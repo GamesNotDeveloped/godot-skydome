@@ -270,7 +270,11 @@ void sky() {
 				? max(horizon_fog_sky_affect, horizon_fog_density * min(1.0, pow(horizon_fog_height / elevation, horizon_fog_curve)))
 				: min(horizon_fog_density, horizon_fog_sky_affect / pow(elevation, horizon_fog_curve));
 		float horizon_fog = 1.0 - (1.0 - layer_fog) / max(1.0 - horizon_fog_sky_affect, 0.001);
-		final_color = mix(final_color, horizon_fog_color, clamp(horizon_fog, 0.0, 1.0));
+		// lit towards the sun as Godot's fog is (sky.glsl fog_process()), or the horizon stood flat
+		// under a sunset glowing above it
+		vec3 fog_color = horizon_fog_color
+				+ horizon_fog_sun_color * pow(max(dot(dir, horizon_fog_sun_direction), 0.0), 8.0);
+		final_color = mix(final_color, fog_color, clamp(horizon_fog, 0.0, 1.0));
 	}
 
 	COLOR = final_color;

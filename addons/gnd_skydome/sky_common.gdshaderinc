@@ -94,6 +94,10 @@ group_uniforms HorizonFog;
 	uniform float horizon_fog_height = 0.0;
 	uniform float horizon_fog_sky_affect = 0.0;
 	uniform float horizon_fog_density = 0.0;
+	// the light the fog scatters towards the light (Godot's fog_sun_scatter, its colour and energy
+	// with it) and the direction to the light
+	uniform vec3 horizon_fog_sun_color = vec3(0.0);
+	uniform vec3 horizon_fog_sun_direction = vec3(0.0, 1.0, 0.0);
 group_uniforms;
 
 
