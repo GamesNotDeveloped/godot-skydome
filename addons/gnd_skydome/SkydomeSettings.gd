@@ -16,6 +16,9 @@ const PROPERTIES: Array[StringName] = [
     &"night_vol_fog_density",
     &"vol_fog_density_boost",
     &"clouds_light_occlusion",
+    &"clouds_ambient_occlusion",
+    &"clouds_sky_occlusion",
+    &"clouds_night_sky_occlusion",
     &"clouds_color_shadow",
     &"clouds_shadow_angular_distance_clear",
     &"clouds_evolution_strength",
@@ -37,12 +40,20 @@ const PROPERTIES: Array[StringName] = [
 
 static func register() -> void:
     var skydome_script: Script = load("res://addons/gnd_skydome/Skydome.gd")
+    var hints := {}
+    for info in skydome_script.get_script_property_list():
+        hints[info["name"]] = info
     for property in PROPERTIES:
         var setting := PREFIX + property
         var default_value: Variant = skydome_script.get_property_default_value(property)
         if not ProjectSettings.has_setting(setting):
             ProjectSettings.set_setting(setting, default_value)
-        ProjectSettings.add_property_info({"name": setting, "type": typeof(default_value)})
+        var info := {"name": setting, "type": typeof(default_value)}
+        if hints.has(property):
+            # the enum's names, a slider's range
+            info["hint"] = hints[property]["hint"]
+            info["hint_string"] = hints[property]["hint_string"]
+        ProjectSettings.add_property_info(info)
         ProjectSettings.set_initial_value(setting, default_value)
 
 
