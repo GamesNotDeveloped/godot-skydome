@@ -31,3 +31,41 @@
 * Setup Skydome's paths to DirectionalLight3D and WorldEnvironment
 
 ![Usage Screenshot](docs/screenshots/usage1.jpg)
+
+## Clouds of your own
+
+Skydome draws its own clouds (`clouds_2d.gdshaderinc`, the `clouds_*` properties). Another kind of
+clouds is a `SkydomeClouds` resource set as `Skydome.clouds_renderer`:
+
+* `get_sky_shader()` - a sky shader with the clouds between the sky's two includes:
+
+      shader_type sky;
+      #include "res://addons/gnd_skydome/sky_common.gdshaderinc"
+      // the clouds' uniforms and
+      // vec4 clouds(vec3 dir, vec2 pixel, float day_blend, float sunset_blend)
+      // - their colour premultiplied by how much they cover (alpha); sunset_blend is the
+      // sunset as much as the cover shows it, nothing of it under a heavy one
+      #include "res://addons/gnd_skydome/sky_atmosphere.gdshaderinc"
+
+  With `#define CLOUDS_HALF_RES` (and `render_mode use_half_res_pass`) the clouds are drawn in
+  Godot's half resolution pass
+* `setup()`, `sync()`, `process()` - their uniforms on the sky's material: once, as the sky's state
+  changes, each frame
+* `get_cover()` - how much of the sky they cover, which the light, the fog and the sun shafts follow;
+  `get_storm_darkening()` - how much darker a storm's clouds make it; `get_light_occlusion_share()` -
+  how much of the light the cover takes away, less where their own shadows on the ground do
+* `get_compositor_effects()` - effects they bring (their shadows on the ground, ...)
+
+Skydome tells them what they need of the sky: `get_day_blend()`, `get_sunset_blend()`,
+`get_sky_overcast()`, `get_sun_direction()`, `get_moon_direction()`, `get_cloud_wind_direction()`,
+`get_cloud_wind_speed()`, `get_cloud_motion_time()`, `get_rendered_total_hours()`, `get_camera()`,
+`get_light()`, `get_environment()`, `get_sky_material()`.
+
+## Overcast
+
+How overcast the sky is (`get_sky_overcast()`) is the clouds' cover, a storm's darkening and
+`weather_overcast` - what a weather makes of it besides the clouds drawn: the rain or the snow
+falling, their haze. A heavy cover greys the sunrise and the sunset out: the sky turns to
+`shader_overcast_sky_color`, the clouds, the light, the ambient and the fog take the sunset's
+colours only as much as the cover breaks, and a band of it stays low on the sun's side while the
+cover is not whole.
