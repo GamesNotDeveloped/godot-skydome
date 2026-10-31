@@ -806,6 +806,10 @@ func bind(world_environment: WorldEnvironment, light: DirectionalLight3D) -> voi
 func process(_delta: float) -> void:
     if not _is_inside_tree():
         return
+    # the camera the viewport shows now: a sky bound as its node entered the tree finds no camera
+    # entering after it (a game's), and a game switches cameras
+    _camera = _find_active_camera()
+    _viewport_size = _get_active_viewport_size()
     _advance_time_transition(_delta)
     _process_sunshafts()
     if clouds_renderer and _sky_material:
