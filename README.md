@@ -29,8 +29,22 @@
 * Add DirectionalLight3D and WorldEnvironment
 * Create Environment in WorldEnvironment
 * Setup Skydome's paths to DirectionalLight3D and WorldEnvironment
+* Enable the plugin: it adds the `SkydomeServer` autoload
 
 ![Usage Screenshot](docs/screenshots/usage1.jpg)
+
+## The server and the node
+
+`SkydomeServer` (an autoload) draws the skies, each by its RID, as `RenderingServer` keeps the
+lights a `Light3D` sets: a `SkydomeSky` per RID, bound to a `WorldEnvironment` and a light
+(`skydome_bind()`), with its parameters set by name (`skydome_set_param(rid, name, value)`).
+
+The `Skydome` node is the sky in the scene: it keeps the parameters it is tuned with in the inspector,
+saved with the scene, and sets them on its sky (`get_rid()`). What a game and its weather set as they
+go they set on the sky past the node - `SkydomeServer.skydome_set_param()`, or
+`Skydome.set_sky_param()` where only the node is known - so it is drawn, in the editor too, and never
+saved; a parameter set on the node anew takes the place of theirs, and `param_changed` tells them to
+set theirs again. A node with no paths is bound by whoever owns its sky (`skydome_bind()`).
 
 ## Clouds of your own
 

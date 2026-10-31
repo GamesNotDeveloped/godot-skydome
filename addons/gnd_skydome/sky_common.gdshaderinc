@@ -29,6 +29,9 @@ group_uniforms Atmosphere;
 	uniform float day_full_altitude = 0.1045;
 	uniform float sunset_fade_start = 0.0175;
 	uniform float sunset_fade_end = 0.1392;
+	// ...and the sun's disc reddens at / keeps the day's colour above (Skydome.gd)
+	uniform float sunset_disc_fade_start = 0.0698;
+	uniform float sunset_disc_fade_end = 0.1736;
 
 group_uniforms Rainbow;
 	uniform float rainbow_intensity : hint_range(0.0, 2.0) = 0.0;
@@ -58,10 +61,6 @@ group_uniforms NightSky;
 	uniform float stars_size_max : hint_range(0.005, 0.4) = 0.14;
 	uniform float stars_edge_softness : hint_range(0.25, 4.0) = 1.5;
 
-group_uniforms GI;
-	uniform vec3 gi_tint : source_color = vec3(1.0, 1.0, 1.0);
-	uniform float gi_energy_multiplier : hint_range(0.0, 10.0) = 1.0;
-
 group_uniforms Sun;
 	uniform vec3 sun_color : source_color = vec3(1.0, 0.95, 0.8);
 	uniform float sun_disk_size : hint_range(0.0, 2.0) = 1.0;
@@ -84,22 +83,6 @@ group_uniforms Moon;
 	uniform float moon_corona_strength : hint_range(0.0, 2.0) = 0.2;
 
 uniform bool high_quality_sky = true;
-
-group_uniforms HorizonFog;
-	// Set by Skydome (fog_sky_horizon_curve, fog_sky_horizon_height): the fog's colour as Godot fogs
-	// the sky with it, the sine of the elevation the terrain's fog stands to, the share Godot lays
-	// over the whole sky and the density the terrain at the fog's end takes
-	uniform vec3 horizon_fog_color = vec3(0.0);
-	uniform float horizon_fog_curve = 0.0;
-	uniform float horizon_fog_height = 0.0;
-	uniform float horizon_fog_sky_affect = 0.0;
-	uniform float horizon_fog_density = 0.0;
-	// the light the fog scatters towards the light (Godot's fog_sun_scatter, its colour and energy
-	// with it) and the direction to the light
-	uniform vec3 horizon_fog_sun_color = vec3(0.0);
-	uniform vec3 horizon_fog_sun_direction = vec3(0.0, 1.0, 0.0);
-group_uniforms;
-
 
 // how much of the sun's light a cloud in front of it takes away (Skydome: clouds_sun_occlusion)
 uniform float sun_cloud_occlusion : hint_range(0.0, 1.0) = 0.8;
