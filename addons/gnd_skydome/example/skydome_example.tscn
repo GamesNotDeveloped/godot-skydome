@@ -1,0 +1,178 @@
+[gd_scene format=3 uid="uid://d3pxlg550ls26"]
+
+[ext_resource type="Script" uid="uid://blkilnimp0sck" path="res://addons/gnd_skydome/Skydome.gd" id="1_skydome"]
+[ext_resource type="Shader" uid="uid://ck1w2pkpwin11" path="res://addons/gnd_skydome/filmic_procedural_sky.gdshader" id="1_uoa0c"]
+[ext_resource type="Script" uid="uid://pw1ljvn4g7cy" path="res://addons/gnd_skydome/SunShaftsCompositorEffect.gd" id="2_qauv0"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_hm2a5"]
+seed = 10
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_64cji"]
+noise = SubResource("FastNoiseLite_hm2a5")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_jrr18"]
+seed = 100
+frequency = 0.008
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_o2jyu"]
+noise = SubResource("FastNoiseLite_jrr18")
+seamless = true
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_lglc6"]
+shader = ExtResource("1_uoa0c")
+shader_parameter/cloud_wind_direction = Vector2(0.9363292, 0.35112345)
+shader_parameter/cloud_wind_speed = 1.0
+shader_parameter/cloud_motion_time = 0.0
+shader_parameter/cloud_motion_scale = 0.12
+shader_parameter/cloud_evolution_time = 0.0
+shader_parameter/cloud_evolution_strength = 0.18
+shader_parameter/cloud_evolution_scale = 0.018
+shader_parameter/lower_sky_color = Color(0.655, 0.706, 0.79, 1)
+shader_parameter/horizon_color = Color(0.832, 0.86, 0.886, 1)
+shader_parameter/zenith_color = Color(0.2373352, 0.4190016, 0.7890625, 1)
+shader_parameter/sky_energy = 0.8068
+shader_parameter/horizon_height = 0.05
+shader_parameter/horizon_softness = 0.24
+shader_parameter/zenith_curve = 0.405
+shader_parameter/horizon_glow_strength = 1.004
+shader_parameter/atmosphere_horizon_level = -0.035
+shader_parameter/atmosphere_height = 0.24
+shader_parameter/atmosphere_density = 0.46
+shader_parameter/atmosphere_sun_scatter = 0.34
+shader_parameter/atmosphere_sunset_boost = 1.35
+shader_parameter/day_full_altitude = 0.10452846326765347
+shader_parameter/sunset_fade_start = 0.01745240643728351
+shader_parameter/sunset_fade_end = 0.13917310096006544
+shader_parameter/sunset_disc_fade_start = 0.0697564737441253
+shader_parameter/sunset_disc_fade_end = 0.17364817766693033
+shader_parameter/rainbow_intensity = 0.0
+shader_parameter/rainbow_secondary_intensity = 0.35
+shader_parameter/sunset_bottom_color = Color(1, 0.5, 0.2, 1)
+shader_parameter/sunset_horizon_color = Color(0.8, 0.2, 0.05, 1)
+shader_parameter/sunset_zenith_color = Color(0.4, 0.3, 0.5, 1)
+shader_parameter/sunset_cloud_color = Color(1, 0.4, 0.15, 1)
+shader_parameter/sunset_sun_color = Color(1, 0.4, 0.1, 1)
+shader_parameter/overcast = 0.42
+shader_parameter/overcast_sky_color = Color(0.55, 0.58, 0.62, 1)
+shader_parameter/night_lower_sky_color = Color(0.03, 0.05, 0.09, 1)
+shader_parameter/night_horizon_color = Color(0.03, 0.05, 0.09, 1)
+shader_parameter/night_zenith_color = Color(0.069, 0.08, 0.109, 1)
+shader_parameter/night_sky_energy = 0.25716
+shader_parameter/stars_color = Color(1, 1, 1, 1)
+shader_parameter/stars_energy = 1.1768
+shader_parameter/stars_size_min = 0.01
+shader_parameter/stars_size_max = 0.03
+shader_parameter/stars_edge_softness = 0.25
+shader_parameter/sun_color = Color(1, 0.98, 0.9, 1)
+shader_parameter/sun_disk_size = 0.04
+shader_parameter/sun_disk_softness = 0.2
+shader_parameter/sun_disk_strength = 2.0
+shader_parameter/sun_seasonal_size_variation = 30.0
+shader_parameter/sun_halo_size = 0.2
+shader_parameter/sun_halo_strength = 0.5
+shader_parameter/sun_atmosphere_size = 0.4
+shader_parameter/sun_atmosphere_strength = 0.2
+shader_parameter/sun_energy_scale = 0.8
+shader_parameter/moon_color = Color(0.9, 0.95, 1, 1)
+shader_parameter/moon_size = 1.0
+shader_parameter/moon_glow_strength = 0.1
+shader_parameter/moon_eclipse_size = 0.8
+shader_parameter/moon_glow_size = 1.0
+shader_parameter/moon_corona_strength = 0.2
+shader_parameter/high_quality_sky = true
+shader_parameter/sun_cloud_occlusion = 0.5824
+shader_parameter/custom_sun_dir = Vector3(-0.86240816, 0.045580957, -0.5041573)
+shader_parameter/custom_moon_dir = Vector3(-0.6483579, -0.106180005, -0.75389516)
+shader_parameter/celestial_matrix = Basis(-0.70711523, -0.45404115, 0.54206514, 0, 0.7666051, 0.6421189, -0.7070983, 0.45405203, -0.54207814)
+shader_parameter/rendered_day_of_year = 145.0
+shader_parameter/rendered_time_of_day = 19.5
+shader_parameter/observer_latitude_deg = 50.05
+shader_parameter/cloud_time = 20853.0
+shader_parameter/cloud_tex_a = SubResource("NoiseTexture2D_64cji")
+shader_parameter/cloud_tex_b = SubResource("NoiseTexture2D_o2jyu")
+shader_parameter/cloud_scroll_a = Vector2(0.0012, 0.00015)
+shader_parameter/cloud_scroll_b = Vector2(-0.0018, 0.0004)
+shader_parameter/cloud_scale_a = Vector2(0.045, 0.055)
+shader_parameter/cloud_scale_b = Vector2(0.082, 0.125)
+shader_parameter/cloud_plane_height = 0.187
+shader_parameter/cloud_plane_curve = 0.595
+shader_parameter/cloud_warp_strength = 0.053
+shader_parameter/cloud_coverage = 0.42
+shader_parameter/cloud_softness = 0.2
+shader_parameter/cloud_opacity = 0.8856999999999999
+shader_parameter/cloud_horizon_fade = 0.481
+shader_parameter/cloud_top_fade = 0.118
+shader_parameter/cloud_light_color = Color(0.95002, 0.93884003, 0.92500997, 1)
+shader_parameter/cloud_shadow_color = Color(0.4, 0.45, 0.55, 1)
+shader_parameter/cloud_forward_scatter = 1.5
+shader_parameter/cloud_backscatter = 0.39
+
+[sub_resource type="Sky" id="Sky_c0pkg"]
+sky_material = SubResource("ShaderMaterial_lglc6")
+
+[sub_resource type="Environment" id="Environment_sunset"]
+background_mode = 2
+sky = SubResource("Sky_c0pkg")
+ambient_light_color = Color(0.70389897, 0.673088, 0.58310515, 1)
+ambient_light_energy = 1.8834846
+fog_light_color = Color(0.7948112, 0.7121988, 0.67126995, 1)
+fog_sun_scatter = 0.41557422
+fog_density = 0.0064685293
+fog_sky_affect = 0.15
+fog_depth_begin = 2.6
+fog_depth_end = 443.56647
+volumetric_fog_density = 0.0057971952
+volumetric_fog_albedo = Color(0.781785, 0.62653536, 0.5297897, 1)
+volumetric_fog_length = 7.5104904
+volumetric_fog_ambient_inject = 0.045874115
+volumetric_fog_sky_affect = 0.5
+
+[sub_resource type="CompositorEffect" id="CompositorEffect_ay3fm"]
+resource_local_to_scene = false
+resource_name = ""
+enabled = true
+effect_callback_type = 4
+needs_motion_vectors = false
+needs_normal_roughness = false
+script = ExtResource("2_qauv0")
+sun_screen_uv = Vector2(0.3763896, 0.42374295)
+sun_visible = true
+shaft_color = Color(0.7088667, 0.66045237, 0.5005233, 1)
+density = 0.3774858481222069
+bright_threshold = 0.182
+weight = 0.02985994674516073
+decay = 0.93
+exposure = 1.052397602528319
+max_radius = 1.377
+sample_count = 8
+dither_strength = 1.4
+
+[sub_resource type="Compositor" id="Compositor_udpjj"]
+compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_ay3fm")])
+
+[node name="SkydomeExample" type="Node3D" unique_id=628101635]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=396909512]
+environment = SubResource("Environment_sunset")
+compositor = SubResource("Compositor_udpjj")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1664069790]
+transform = Transform3D(-0.5046818, 0.03935029, -0.86240816, 0, 0.9989607, 0.045580957, 0.8633054, 0.023003882, -0.5041573, 0, 0, 0)
+light_color = Color(0.8706635, 0.55844074, 0.39500862, 1)
+light_energy = 0.7694079
+light_angular_distance = 2.3841093
+shadow_enabled = true
+shadow_opacity = 0.9740123
+
+[node name="Skydome" type="Node" parent="." unique_id=1484380238]
+script = ExtResource("1_skydome")
+world_environment_path = NodePath("../WorldEnvironment")
+directional_light_path = NodePath("../DirectionalLight3D")
+day_of_year = 145
+time_of_day = 19.5
+latitude = 50.05
+clouds_coverage = 0.42
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=379388032]
+transform = Transform3D(0.5, 0.296198, 0.813798, 0, 0.939693, -0.34202, -0.866025, 0.17101, 0.469846, 0, 2, 0)

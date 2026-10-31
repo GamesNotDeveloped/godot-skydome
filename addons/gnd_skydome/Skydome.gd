@@ -21,7 +21,10 @@ signal param_changed(name: StringName)
         directional_light_path = v
         _bind()
 
-var _rid: RID = SkydomeServer.skydome_create()
+## The autoload SkydomeServer the plugin adds, taken as the Engine singleton it registers, not by
+## its autoload name: a script naming an autoload does not parse until the plugin is enabled
+var _server: Object = _get_server()
+var _rid: RID = _server.skydome_create() if _server else RID()
 
 @export_group("Time & Date")
 @export_range(1, 365) var day_of_year: int = 180:
@@ -783,6 +786,20 @@ var _rid: RID = SkydomeServer.skydome_create()
 
 
 
+## SkydomeServer, set by itself as it enters the tree after this node was made with no server (the
+## plugin enabled with the scene open): the sky is made then and takes all the node's parameters
+func set_server(server: Object) -> void:
+    if _server:
+        return
+    _server = server
+    _rid = _server.skydome_create()
+    for property: Dictionary in get_property_list():
+        if property.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and property.usage & PROPERTY_USAGE_STORAGE \
+                and property.name not in [&"world_environment_path", &"directional_light_path"]:
+            _server.skydome_set_param(_rid, property.name, get(property.name))
+    _bind()
+
+
 ## The sky this node sets its parameters on
 func get_rid() -> RID:
     return _rid
@@ -791,22 +808,28 @@ func get_rid() -> RID:
 ## [param name] set on the sky past this node (SkydomeServer.skydome_set_param()): what the
 ## weather sets as it goes, which the scene never saves, until set here anew
 func set_sky_param(name: StringName, value: Variant) -> void:
-    SkydomeServer.skydome_set_param(_rid, name, value)
+    if _server:
+        _server.skydome_set_param(_rid, name, value)
 
 
 ## [param name] as the sky draws it
 func get_sky_param(name: StringName) -> Variant:
-    return SkydomeServer.skydome_get_param(_rid, name)
+    return _server.skydome_get_param(_rid, name) if _server else null
 
 
 ## The clouds' wind taken at once, not eased into
 func apply_wind_now() -> void:
-    SkydomeServer.skydome_apply_wind_now(_rid)
+    if _server:
+        _server.skydome_apply_wind_now(_rid)
+
+
+func _init() -> void:
+    add_to_group(&"skydome")
 
 
 func _notification(what: int) -> void:
-    if what == NOTIFICATION_PREDELETE:
-        SkydomeServer.skydome_free(_rid)
+    if what == NOTIFICATION_PREDELETE and is_instance_valid(_server):
+        _server.skydome_free(_rid)
 
 
 func _enter_tree() -> void:
@@ -814,12 +837,20 @@ func _enter_tree() -> void:
 
 
 func _bind() -> void:
-    if not is_inside_tree() or (world_environment_path.is_empty() and directional_light_path.is_empty()):
+    if not _server or not is_inside_tree() or (world_environment_path.is_empty() and directional_light_path.is_empty()):
         return
-    SkydomeServer.skydome_bind(_rid, get_node_or_null(world_environment_path) as WorldEnvironment,
+    _server.skydome_bind(_rid, get_node_or_null(world_environment_path) as WorldEnvironment,
         get_node_or_null(directional_light_path) as DirectionalLight3D)
 
 
 func _set_param(name: StringName, value: Variant) -> void:
-    SkydomeServer.skydome_set_param(_rid, name, value)
+    if _server:
+        _server.skydome_set_param(_rid, name, value)
     param_changed.emit(name)
+
+
+func _get_server() -> Object:
+    if not Engine.has_singleton(&"SkydomeServer"):
+        push_error("Skydome: no SkydomeServer - enable the Godot Skydome plugin (Project > Project Settings > Plugins)")
+        return null
+    return Engine.get_singleton(&"SkydomeServer")
