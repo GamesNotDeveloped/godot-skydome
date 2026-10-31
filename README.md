@@ -83,3 +83,10 @@ falling, their haze. A heavy cover greys the sunrise and the sunset out: the sky
 `shader_overcast_sky_color`, the clouds, the light, the ambient and the fog take the sunset's
 colours only as much as the cover breaks, and a band of it stays low on the sun's side while the
 cover is not whole.
+
+## License
+
+Copyright (c) 2026 Marcin Nowak, published as GamesNotDeveloped.
+
+Godot Skydome is licensed under the Mozilla Public License 2.0 (`LICENSE`). A release's zip carries
+it in `addons/gnd_skydome/LICENSE`.

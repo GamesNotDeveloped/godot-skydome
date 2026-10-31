@@ -1,6 +1,7 @@
 # A version tag (0.5.0) pushed makes its GitHub release with the addon packed as
-# gnd_skydome-<tag>.zip (addons/gnd_skydome as it is in the tag); a tag pushed
-# before this workflow is released by running it by hand with that tag
+# gnd_skydome-<tag>.zip (addons/gnd_skydome as it is in the tag, with the
+# repository's LICENSE in it); a tag pushed before this workflow is released by
+# running it by hand with that tag
 name: release
 
 on:
@@ -36,7 +37,10 @@ jobs:
           fi
 
       - name: Pack the addon
-        run: git archive --format=zip -o "gnd_skydome-$TAG.zip" HEAD addons/gnd_skydome
+        run: >
+          git archive --format=zip -o "gnd_skydome-$TAG.zip"
+          --prefix=addons/gnd_skydome/ --add-file=LICENSE --prefix=
+          HEAD addons/gnd_skydome
 
       - name: Publish the release
         run: gh release create "$TAG" "gnd_skydome-$TAG.zip" --title "$TAG" --generate-notes --verify-tag
