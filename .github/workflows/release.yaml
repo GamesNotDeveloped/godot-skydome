@@ -1,0 +1,42 @@
+# A version tag (0.5.0) pushed makes its GitHub release with the addon packed as
+# gnd_skydome-<tag>.zip (addons/gnd_skydome as it is in the tag); a tag pushed
+# before this workflow is released by running it by hand with that tag
+name: release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to release
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Check the plugin version
+        run: |
+          version=$(sed -n 's/^version="\(.*\)"$/\1/p' addons/gnd_skydome/plugin.cfg)
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::plugin.cfg has version $version, the tag is $TAG"
+            exit 1
+          fi
+
+      - name: Pack the addon
+        run: git archive --format=zip -o "gnd_skydome-$TAG.zip" HEAD addons/gnd_skydome
+
+      - name: Publish the release
+        run: gh release create "$TAG" "gnd_skydome-$TAG.zip" --title "$TAG" --generate-notes --verify-tag
