@@ -31,6 +31,8 @@
 * Setup Skydome's paths to DirectionalLight3D and WorldEnvironment
 * Enable the plugin: it adds the `SkydomeServer` autoload
 
+An example scene: `addons/gnd_skydome/example/skydome_example.tscn`.
+
 ![Usage Screenshot](docs/screenshots/usage1.jpg)
 
 ## The server and the node
