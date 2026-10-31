@@ -72,7 +72,7 @@ void sky() {
 
 	// The radiance cubemap (and the ambient light from it) only takes the gradient
 	if (AT_CUBEMAP_PASS) {
-		COLOR = mix(night_base, day_base, day_blend) * gi_tint * gi_energy_multiplier;
+		COLOR = mix(night_base, day_base, day_blend);
 	}
 #ifdef CLOUDS_HALF_RES
 	else if (AT_HALF_RES_PASS) {
@@ -90,7 +90,10 @@ void sky() {
 		final_color += sun_color * sun_disk * 5.0;
 	} else {
 
-	vec3 active_sun_color = mix(sun_color, sunset_sun_color, sunset_seen);
+	// the sun reddens over a window of its own, higher than the sky's sunset (sunset_disc_fade_*)
+	float sun_reddening = smoothstep(-0.2, 0.05, sun_alt)
+			* (1.0 - smoothstep(sunset_disc_fade_start, sunset_disc_fade_end, sun_alt)) * (1.0 - overcast_veil);
+	vec3 active_sun_color = mix(sun_color, sunset_sun_color, sun_reddening);
 
 	vec3 celestial_dir = celestial_matrix * dir;
 	if (day_blend < 0.99 && stars_energy > 0.001) {
@@ -257,24 +260,6 @@ void sky() {
 		final_color *= 1.0 - alexander_band * rainbow_visibility * 0.05;
 		final_color += (primary_rainbow + secondary_rainbow * rainbow_secondary_intensity) * rainbow_visibility * 2.5;
 	}
-	}
-
-	// A fog layer's: at an elevation of θ the sky takes horizon_fog_sky_affect / sin(θ)^curve of the
-	// fog, the terrain's horizon_fog_density at the horizon - or, with a horizon_fog_height, that
-	// density in full up to it and (height / sin(θ))^curve of it above. Godot mixes its
-	// horizon_fog_sky_affect in after this (sky.glsl), so the sky is brought here only up to the rest
-	// of it.
-	if (!AT_CUBEMAP_PASS && horizon_fog_curve > 0.0 && horizon_fog_density > horizon_fog_sky_affect) {
-		float elevation = max(dir.y, 0.001);
-		float layer_fog = horizon_fog_height > 0.0
-				? max(horizon_fog_sky_affect, horizon_fog_density * min(1.0, pow(horizon_fog_height / elevation, horizon_fog_curve)))
-				: min(horizon_fog_density, horizon_fog_sky_affect / pow(elevation, horizon_fog_curve));
-		float horizon_fog = 1.0 - (1.0 - layer_fog) / max(1.0 - horizon_fog_sky_affect, 0.001);
-		// lit towards the sun as Godot's fog is (sky.glsl fog_process()), or the horizon stood flat
-		// under a sunset glowing above it
-		vec3 fog_color = horizon_fog_color
-				+ horizon_fog_sun_color * pow(max(dot(dir, horizon_fog_sun_direction), 0.0), 8.0);
-		final_color = mix(final_color, fog_color, clamp(horizon_fog, 0.0, 1.0));
 	}
 
 	COLOR = final_color;
