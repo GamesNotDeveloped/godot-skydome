@@ -50,6 +50,18 @@ func skydome_apply_wind_now(rid: RID) -> void:
     _skies[rid].apply_wind_now()
 
 
+## Registered as an Engine singleton too, for what may not name the autoload (Skydome: its script
+## parses before the plugin is enabled); the Skydome nodes made before it (the plugin enabled with
+## their scene open) are given it
+func _enter_tree() -> void:
+    Engine.register_singleton(&"SkydomeServer", self)
+    get_tree().call_group(&"skydome", &"set_server", self)
+
+
+func _exit_tree() -> void:
+    Engine.unregister_singleton(&"SkydomeServer")
+
+
 func _process(delta: float) -> void:
     for sky: SkydomeSky in _skies.values():
         sky.process(delta)
