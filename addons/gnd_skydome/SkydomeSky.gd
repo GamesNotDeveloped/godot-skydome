@@ -856,13 +856,14 @@ func _get_final_cloud_density() -> float:
     return lerpf(base_cloud_density, maxf(base_cloud_density, 0.88), cloud_overcast_mix)
 
 
+## The sun's shadows softened by the sky's overcast (_apply_state_params(), get_sky_overcast()): the
+## clouds drawn and a weather's - a rain's grey sky kept the clear day's sharp shadows under it
 func _apply_cloud_light_response(light: DirectionalLight3D) -> void:
     if not light:
         return
-    var final_cloud_density := _get_final_cloud_density()
     var soften_start := minf(clouds_shadow_soften_start, clouds_shadow_soften_end)
     var soften_end := maxf(clouds_shadow_soften_start, clouds_shadow_soften_end)
-    var shadow_soften := smoothstep(soften_start, soften_end, final_cloud_density)
+    var shadow_soften := smoothstep(soften_start, soften_end, _sky_overcast)
     light.light_angular_distance = lerpf(
         clouds_shadow_angular_distance_clear,
         clouds_shadow_angular_distance_overcast,
