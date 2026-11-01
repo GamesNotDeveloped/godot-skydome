@@ -76,6 +76,9 @@ var _editor_access = null
 # What the clouds_renderer's compositor effects are, to take them out again
 var _clouds_renderer_effects: Array[CompositorEffect] = []
 var _sky_overcast: float = 0.0
+# The share of the sun's (the moon's) direct light the clouds let through (_apply_state_params()):
+# its shadows soften as it dims (_apply_cloud_light_response())
+var _sun_transmission: float = 1.0
 var _sun_direction: Vector3 = Vector3.UP
 var _moon_direction: Vector3 = Vector3.DOWN
 # The time the light is turned to (day * 24 + hour) - the drawn one, or behind it by light_update_mode
@@ -416,11 +419,15 @@ func _success(x):
     set(v):
         clouds_shadow_opacity_overcast = clampf(v, 0.0, 1.0)
         _update_sun_transform()
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.28:
+## The share of the sun's light the clouds take at which its shadows start to soften and fade: the
+## light the clouds take of the sun's beam they scatter, so its shadows soften as it dims
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.0:
     set(v):
         clouds_shadow_soften_start = clampf(v, 0.0, 1.0)
         _update_sun_transform()
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 0.9:
+## The share of the sun's light the clouds take at which its shadows are as soft and as faint as
+## clouds_shadow_angular_distance_overcast and clouds_shadow_opacity_overcast make them
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 1.0:
     set(v):
         clouds_shadow_soften_end = clampf(v, 0.0, 1.0)
         _update_sun_transform()
@@ -891,13 +898,15 @@ func _get_final_cloud_density() -> float:
     return lerpf(base_cloud_density, maxf(base_cloud_density, 0.88), cloud_overcast_mix)
 
 
+## The sun's shadows softened and faded as much as the clouds dim the sun (_apply_state_params()):
+## the clouds drawn and a weather's - a rain's grey sky kept the clear day's sharp shadows under it,
+## and a half-clear sky blurred them while it kept the sun bright
 func _apply_cloud_light_response(light: DirectionalLight3D) -> void:
     if not light:
         return
-    var final_cloud_density := _get_final_cloud_density()
     var soften_start := minf(clouds_shadow_soften_start, clouds_shadow_soften_end)
     var soften_end := maxf(clouds_shadow_soften_start, clouds_shadow_soften_end)
-    var shadow_soften := smoothstep(soften_start, soften_end, final_cloud_density)
+    var shadow_soften := smoothstep(soften_start, soften_end, 1.0 - _sun_transmission)
     light.light_angular_distance = lerpf(
         clouds_shadow_angular_distance_clear,
         clouds_shadow_angular_distance_overcast,
@@ -1473,8 +1482,9 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
         if clouds_renderer:
             light_occlusion *= clampf(clouds_renderer.get_light_occlusion_share(self), 0.0, 1.0)
         # the clouds' share less what their shadows on the ground take; a weather's in full
-        light.light_energy *= 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
+        _sun_transmission = 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
             weather_overcast * clouds_light_occlusion)
+        light.light_energy *= _sun_transmission
         light.light_energy += current_lightning_flash * lerpf(storm_flash_light_energy_clear, storm_flash_light_energy_overcast, sky_overcast)
         light.light_color = light.light_color.lerp(Color(0.58, 0.62, 0.68, 1.0), overcast_cooling * 0.94)
         light.light_color = light.light_color.lerp(storm_flash_light_color, current_lightning_flash * 0.8)

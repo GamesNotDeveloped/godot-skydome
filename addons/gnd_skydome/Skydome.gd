@@ -403,11 +403,14 @@ var _rid: RID = SkydomeServer.skydome_create()
     set(v):
         clouds_shadow_opacity_overcast = v
         _set_param(&"clouds_shadow_opacity_overcast", v)
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.28:
+## The share of the sun's light the clouds take at which its shadows start to soften and fade
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.0:
     set(v):
         clouds_shadow_soften_start = v
         _set_param(&"clouds_shadow_soften_start", v)
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 0.9:
+## The share of the sun's light the clouds take at which its shadows are as soft and as faint as
+## clouds_shadow_angular_distance_overcast and clouds_shadow_opacity_overcast make them
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 1.0:
     set(v):
         clouds_shadow_soften_end = v
         _set_param(&"clouds_shadow_soften_end", v)
