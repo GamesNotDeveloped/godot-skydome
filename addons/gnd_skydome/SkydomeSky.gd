@@ -30,6 +30,10 @@ const FOG_SUNSET_SHARE := 0.15
 # behind it (the sky shader's overcast_veil, sky_atmosphere.gdshaderinc)
 const OVERCAST_VEIL_START := 0.35
 const OVERCAST_VEIL_END := 0.95
+## A cover as heavy as from SUN_HIDDEN_START on lets less and less of the sun through, none from
+## SUN_HIDDEN_END: no sun's shadow, no glint of it off water or glass under a storm's clouds
+const SUN_HIDDEN_START := 0.75
+const SUN_HIDDEN_END := 0.98
 # Of the fog's share of the sunset what a whole cover leaves of it: a hint of the light under it
 const FOG_SUNSET_OVERCAST_SHARE := 0.2
 
@@ -1417,6 +1421,9 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
         # the clouds' share less what their shadows on the ground take; a weather's in full
         light.light_energy *= 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
             weather_overcast * clouds_light_occlusion)
+        # the shadows on the ground take their share of a broken cover's light only: a heavy one hides
+        # the sun itself, its glint off water and glass too
+        light.light_energy *= 1.0 - smoothstep(SUN_HIDDEN_START, SUN_HIDDEN_END, sky_overcast)
         light.light_energy += current_lightning_flash * lerpf(storm_flash_light_energy_clear, storm_flash_light_energy_overcast, sky_overcast)
         light.light_color = light.light_color.lerp(Color(0.58, 0.62, 0.68, 1.0), overcast_cooling * 0.94)
         light.light_color = light.light_color.lerp(storm_flash_light_color, current_lightning_flash * 0.8)
