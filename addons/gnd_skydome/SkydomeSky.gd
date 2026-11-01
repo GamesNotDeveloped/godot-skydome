@@ -513,6 +513,18 @@ func _success(x):
     set(v):
         clouds_light_occlusion = v
         _update_sun_transform()
+## The sky's overcast from which a heavy cover lets less and less of the sun through, after the
+## clouds' share (clouds_light_occlusion): no sun's shadow, no glint of it off water or glass under a
+## storm's clouds
+@export_range(0.0, 1.0, 0.001) var clouds_sun_hidden_start: float = 0.75:
+    set(v):
+        clouds_sun_hidden_start = clampf(v, 0.0, 1.0)
+        _update_sun_transform()
+## The sky's overcast from which the cover lets none of the sun through
+@export_range(0.0, 1.0, 0.001) var clouds_sun_hidden_end: float = 0.98:
+    set(v):
+        clouds_sun_hidden_end = clampf(v, 0.0, 1.0)
+        _update_sun_transform()
 ## Share of the ambient light a full cloud cover takes away - the sky's light, which an overcast dims
 ## far less than the sun's
 @export_range(0.0, 1.0, 0.01) var clouds_ambient_occlusion: float = 0.24:
@@ -1484,6 +1496,10 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
         # the clouds' share less what their shadows on the ground take; a weather's in full
         _sun_transmission = 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
             weather_overcast * clouds_light_occlusion)
+        # the shadows on the ground take their share of a broken cover's light only: a heavy one hides
+        # the sun itself, its glint off water and glass too
+        _sun_transmission *= 1.0 - smoothstep(minf(clouds_sun_hidden_start, clouds_sun_hidden_end),
+            maxf(clouds_sun_hidden_start, clouds_sun_hidden_end), sky_overcast)
         light.light_energy *= _sun_transmission
         light.light_energy += current_lightning_flash * lerpf(storm_flash_light_energy_clear, storm_flash_light_energy_overcast, sky_overcast)
         light.light_color = light.light_color.lerp(Color(0.58, 0.62, 0.68, 1.0), overcast_cooling * 0.94)
