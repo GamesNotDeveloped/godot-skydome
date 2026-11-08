@@ -786,20 +786,6 @@ var _rid: RID = _server.skydome_create() if _server else RID()
 
 
 
-## SkydomeServer, set by itself as it enters the tree after this node was made with no server (the
-## plugin enabled with the scene open): the sky is made then and takes all the node's parameters
-func set_server(server: Object) -> void:
-    if _server:
-        return
-    _server = server
-    _rid = _server.skydome_create()
-    for property: Dictionary in get_property_list():
-        if property.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and property.usage & PROPERTY_USAGE_STORAGE \
-                and property.name not in [&"world_environment_path", &"directional_light_path"]:
-            _server.skydome_set_param(_rid, property.name, get(property.name))
-    _bind()
-
-
 ## The sky this node sets its parameters on
 func get_rid() -> RID:
     return _rid
@@ -821,10 +807,6 @@ func get_sky_param(name: StringName) -> Variant:
 func apply_wind_now() -> void:
     if _server:
         _server.skydome_apply_wind_now(_rid)
-
-
-func _init() -> void:
-    add_to_group(&"skydome")
 
 
 func _notification(what: int) -> void:
