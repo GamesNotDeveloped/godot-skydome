@@ -32,6 +32,20 @@ const OVERCAST_VEIL_START := 0.35
 const OVERCAST_VEIL_END := 0.95
 # Of the fog's share of the sunset what a whole cover leaves of it: a hint of the light under it
 const FOG_SUNSET_OVERCAST_SHARE := 0.2
+# The shortest step LightUpdateMode.STEPPED takes
+const LIGHT_UPDATE_STEP_MIN_SECONDS := 1.0
+
+## How the light turns with the time (light_update_mode). Godot keeps a directional light's shadow
+## cascades still while the camera moves, not while the light turns: every turn moves the shadow
+## map's texels and the shadow edges jump, so a light turned a few times a second shimmers.
+enum LightUpdateMode {
+    ## With every change of the time
+    CONTINUOUS,
+    ## To the time rounded down to light_update_step_seconds
+    STEPPED,
+    ## Only by update_light() (SkydomeServer.skydome_update_light()) and apply_now()
+    MANUAL,
+}
 
 var _environment: Environment
 var _rendered_day: int = 180
@@ -64,6 +78,8 @@ var _clouds_renderer_effects: Array[CompositorEffect] = []
 var _sky_overcast: float = 0.0
 var _sun_direction: Vector3 = Vector3.UP
 var _moon_direction: Vector3 = Vector3.DOWN
+# The time the light is turned to (day * 24 + hour) - the drawn one, or behind it by light_update_mode
+var _light_total_hours: float = 0.0
 
 func _error(x):
     push_error("[Skydome] "+x)
@@ -85,6 +101,17 @@ func _success(x):
         latitude = v
         _update_sun_transform()
 @export var time_transition_duration: float = 1.0
+## How the light turns with the time; the sky, the light's colour and its energy follow every change
+## of the time whatever this says
+@export var light_update_mode: LightUpdateMode = LightUpdateMode.CONTINUOUS:
+    set(v):
+        light_update_mode = v
+        _follow_light_time()
+## The step LightUpdateMode.STEPPED turns the light by, in seconds of the sky's time
+@export_range(1.0, 86400.0, 1.0, "or_greater", "suffix:s") var light_update_step_seconds: float = 60.0:
+    set(v):
+        light_update_step_seconds = maxf(v, LIGHT_UPDATE_STEP_MIN_SECONDS)
+        _follow_light_time()
 
 @export_group("Performance")
 @export var shader_high_quality_sky: bool = true:
@@ -792,6 +819,7 @@ func bind(world_environment: WorldEnvironment, light: DirectionalLight3D) -> voi
     if not _is_ready:
         _rendered_day = day_of_year
         _rendered_time = time_of_day
+        _light_total_hours = _get_rendered_total_hours()
         _is_ready = true
     _world_environment_id = world_environment.get_instance_id() if world_environment else 0
     _light_id = light.get_instance_id() if light else 0
@@ -819,7 +847,14 @@ func process(_delta: float) -> void:
 func apply_now() -> void:
     _init_sky()
     _request_time_update(true)
+    update_light()
     _update_effect()
+
+
+## The light turned to the time drawn now, whatever light_update_mode says
+func update_light() -> void:
+    _light_total_hours = _get_rendered_total_hours()
+    _update_sun_transform()
 
 
 func apply_wind_now() -> void:
@@ -1234,7 +1269,7 @@ func _stop_time_transition() -> void:
 func _apply_wrapped_time_of_day(unwrapped_time: float) -> void:
     _rendered_day = day_of_year
     _rendered_time = wrapf(unwrapped_time, 0.0, 24.0)
-    _update_sun_transform()
+    _follow_light_time()
     _update_cloud_time(float(day_of_year) * 24.0 + unwrapped_time)
     time_changed.emit(_rendered_day, _rendered_time)
 
@@ -1246,9 +1281,48 @@ func _apply_total_hours(total_hours: float) -> void:
     _rendered_day = day_new
     _rendered_time = new_time
 
-    _update_sun_transform()
+    _follow_light_time()
     _update_cloud_time(total_hours)
     time_changed.emit(_rendered_day, _rendered_time)
+
+## The light's time taken from the drawn one as light_update_mode says (the editor's light follows
+## every change), and the sky and the light drawn by them
+func _follow_light_time() -> void:
+    var rendered_hours := _get_rendered_total_hours()
+    if Engine.is_editor_hint() or light_update_mode == LightUpdateMode.CONTINUOUS:
+        _light_total_hours = rendered_hours
+    elif light_update_mode == LightUpdateMode.STEPPED:
+        var step_hours := light_update_step_seconds / 3600.0
+        _light_total_hours = floorf(rendered_hours / step_hours) * step_hours
+    _update_sun_transform()
+
+
+## Where the sun stands at [param total_hours] (day * 24 + hour)
+func _get_sun_direction_at(total_hours: float) -> Vector3:
+    var day_current := total_hours / 24.0
+    var theta_sun := deg_to_rad(360.0 / 365.0 * (day_current + 10.0))
+    var declination_sun := deg_to_rad(-23.45) * cos(theta_sun)
+    var hour_angle := deg_to_rad(15.0 * (fmod(total_hours, 24.0) - 12.0))
+    return _get_body_direction(hour_angle, declination_sun)
+
+
+## Where the moon stands at [param total_hours] (day * 24 + hour)
+func _get_moon_direction_at(total_hours: float) -> Vector3:
+    var day_current := total_hours / 24.0
+    var moon_phase := fmod(day_current / 29.53, 1.0)
+    var theta_moon := deg_to_rad(360.0 / 365.0 * (day_current + 10.0)) - moon_phase * TAU
+    var declination_moon := deg_to_rad(-23.45) * cos(theta_moon) + deg_to_rad(5.14) * sin(theta_moon)
+    var moon_hour_angle := deg_to_rad(15.0 * (fmod(total_hours, 24.0) - 12.0)) - moon_phase * TAU
+    return _get_body_direction(moon_hour_angle, declination_moon)
+
+
+func _get_body_direction(hour_angle: float, declination: float) -> Vector3:
+    var lat_rad := deg_to_rad(latitude)
+    var y := sin(lat_rad) * sin(declination) + cos(lat_rad) * cos(declination) * cos(hour_angle)
+    var x := -cos(declination) * sin(hour_angle)
+    var z := sin(lat_rad) * cos(declination) * cos(hour_angle) - cos(lat_rad) * sin(declination)
+    return Vector3(x, y, z).normalized()
+
 
 func _update_sun_transform() -> void:
     if not _is_inside_tree():
@@ -1258,26 +1332,10 @@ func _update_sun_transform() -> void:
     var day_current = float(_rendered_day) + _rendered_time / 24.0
     var moon_phase = fmod( day_current / 29.53, 1.0)
     moon_phase_debug = moon_phase
-
-    var theta_sun = deg_to_rad(360.0 / 365.0 * ( day_current + 10.0))
-    var declination_sun = deg_to_rad(-23.45) * cos(theta_sun)
-
-    var theta_moon = theta_sun - moon_phase * TAU
-    var declination_moon = deg_to_rad(-23.45) * cos(theta_moon) + deg_to_rad(5.14) * sin(theta_moon)
-
-    var hour_angle = deg_to_rad(15.0 * (_rendered_time - 12.0))
     var lat_rad = deg_to_rad(latitude)
 
-    var get_dir = func(ha: float, dec: float) -> Vector3:
-        var y = sin(lat_rad) * sin(dec) + cos(lat_rad) * cos(dec) * cos(ha)
-        var x = -cos(dec) * sin(ha)
-        var z = sin(lat_rad) * cos(dec) * cos(ha) - cos(lat_rad) * sin(dec)
-        return Vector3(x, y, z).normalized()
-
-
-    var sun_dir = get_dir.call(hour_angle, declination_sun)
-    var moon_hour_angle = hour_angle - moon_phase * TAU
-    var moon_dir = get_dir.call(moon_hour_angle, declination_moon)
+    var sun_dir := _get_sun_direction_at(_get_rendered_total_hours())
+    var moon_dir := _get_moon_direction_at(_get_rendered_total_hours())
 
     var sidereal_time = deg_to_rad( day_current * 360.0 + _rendered_time * 15.0)
     var celestial_basis = Basis()
@@ -1314,13 +1372,14 @@ func _update_sun_transform() -> void:
 
     if sun_energy >= moon_energy:
         if light:
-            light.global_transform.basis = dir_to_basis.call(sun_dir)
+            # the light stands where its time (light_update_mode) puts the sun
+            light.global_transform.basis = dir_to_basis.call(_get_sun_direction_at(_light_total_hours))
             light.light_color = day_light_color.lerp(sunset_light_color, _sunset_blend)
             light.light_energy = sun_energy
         _is_daytime = true
     else:
         if light:
-            light.global_transform.basis = dir_to_basis.call(moon_dir)
+            light.global_transform.basis = dir_to_basis.call(_get_moon_direction_at(_light_total_hours))
             light.light_color = night_light_color
             light.light_energy = moon_energy
         _is_daytime = false
@@ -1646,7 +1705,8 @@ func _process_sunshafts() -> void:
         return
     var visible: bool = false
     if _camera and _light and _viewport_size.x > 0.0 and _viewport_size.y > 0.0:
-        var sun_dir: Vector3 = _light.global_transform.basis.z.normalized()
+        # the sun or the moon as the sky draws it - the light may stand behind it (light_update_mode)
+        var sun_dir: Vector3 = _sun_direction if _is_daytime else _moon_direction
         var sun_world_pos: Vector3 = _camera.global_position + sun_dir * sunshafts_distance
         if not _camera.is_position_behind(sun_world_pos):
             var sun_uv: Vector2 = _camera.unproject_position(sun_world_pos) / _viewport_size

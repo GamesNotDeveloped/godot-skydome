@@ -46,6 +46,21 @@ go they set on the sky past the node - `SkydomeServer.skydome_set_param()`, or
 saved; a parameter set on the node anew takes the place of theirs, and `param_changed` tells them to
 set theirs again. A node with no paths is bound by whoever owns its sky (`skydome_bind()`).
 
+## The light and its shadows
+
+Godot keeps a directional light's shadow cascades still while the camera moves, not while the light
+turns: every turn moves the shadow map's texels and the shadow edges jump. A sky whose time is set
+a few times a second turns its light as often, and the shadows shimmer although the sun moved by a
+fraction of a degree. `light_update_mode` says when the light turns; the sky, the light's colour and
+its energy follow every change of the time whatever it says:
+
+* `CONTINUOUS` (default) - with every change of the time
+* `STEPPED` - to the time rounded down to `light_update_step_seconds`
+* `MANUAL` - only when asked: `SkydomeServer.skydome_update_light(rid)` (`Skydome.update_light()`),
+  which turns the light to the time drawn in any mode, or `apply_now()`
+
+The sun shafts follow the sun or the moon drawn, not the light.
+
 ## Clouds of your own
 
 Skydome draws its own clouds (`clouds_2d.gdshaderinc`, the `clouds_*` properties). Another kind of
@@ -83,6 +98,13 @@ falling, their haze. A heavy cover greys the sunrise and the sunset out: the sky
 `shader_overcast_sky_color`, the clouds, the light, the ambient and the fog take the sunset's
 colours only as much as the cover breaks, and a band of it stays low on the sun's side while the
 cover is not whole.
+
+## Tests
+
+GUT tests in `addons/gnd_skydome/tests`, run in the demo project (GUT is the `vendor/gut` submodule):
+
+    godot --headless --path demo --import
+    godot --headless --path demo -s res://addons/gut/gut_cmdln.gd -gexit
 
 ## License
 

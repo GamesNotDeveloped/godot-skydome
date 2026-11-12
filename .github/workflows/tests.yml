@@ -1,0 +1,39 @@
+name: Tests
+
+# The addon's GUT tests (addons/gnd_skydome/tests), run in the demo project; GUT is the vendor/gut
+# submodule, linked as demo/addons/gut
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ env.GODOT_VERSION }}
+          use-dotnet: false
+
+      - name: Import project
+        run: godot --headless --path demo --import
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          timeout 300 godot --headless --path demo -s res://addons/gut/gut_cmdln.gd -gexit 2>&1 | tee gut.log
+          ! grep -q "Failed to load script" gut.log
