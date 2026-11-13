@@ -50,6 +50,11 @@ func skydome_apply_wind_now(rid: RID) -> void:
     _skies[rid].apply_wind_now()
 
 
+## The sky's light turned to the time drawn now, whatever its light_update_mode says
+func skydome_update_light(rid: RID) -> void:
+    _skies[rid].update_light()
+
+
 func _process(delta: float) -> void:
     for sky: SkydomeSky in _skies.values():
         sky.process(delta)

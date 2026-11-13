@@ -40,6 +40,17 @@ var _rid: RID = SkydomeServer.skydome_create()
     set(v):
         time_transition_duration = v
         _set_param(&"time_transition_duration", v)
+## How the light turns with the time (SkydomeSky.LightUpdateMode); the sky, the light's colour and
+## its energy follow every change of the time whatever this says
+@export var light_update_mode: SkydomeSky.LightUpdateMode = SkydomeSky.LightUpdateMode.CONTINUOUS:
+    set(v):
+        light_update_mode = v
+        _set_param(&"light_update_mode", v)
+## The step SkydomeSky.LightUpdateMode.STEPPED turns the light by, in seconds of the sky's time
+@export_range(1.0, 86400.0, 1.0, "or_greater", "suffix:s") var light_update_step_seconds: float = 60.0:
+    set(v):
+        light_update_step_seconds = v
+        _set_param(&"light_update_step_seconds", v)
 
 @export_group("Performance")
 @export var shader_high_quality_sky: bool = true:
@@ -802,6 +813,11 @@ func get_sky_param(name: StringName) -> Variant:
 ## The clouds' wind taken at once, not eased into
 func apply_wind_now() -> void:
     SkydomeServer.skydome_apply_wind_now(_rid)
+
+
+## The light turned to the time drawn now, whatever light_update_mode says
+func update_light() -> void:
+    SkydomeServer.skydome_update_light(_rid)
 
 
 func _notification(what: int) -> void:
