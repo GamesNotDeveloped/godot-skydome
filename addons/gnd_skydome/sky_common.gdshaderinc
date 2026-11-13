@@ -63,10 +63,14 @@ group_uniforms NightSky;
 
 group_uniforms Sun;
 	uniform vec3 sun_color : source_color = vec3(1.0, 0.95, 0.8);
-	uniform float sun_disk_size : hint_range(0.0, 2.0) = 1.0;
+	// The disk's radius as 1 - the cosine of its angle (SkydomeSky.sun_disk_radius): its size, the
+	// season's and the horizon's magnification in
+	uniform float sun_disk_radius = 0.0001;
 	uniform float sun_disk_softness : hint_range(0.0, 1.0) = 0.5;
 	uniform float sun_disk_strength : hint_range(0.0, 20.0) = 5.0;
-	uniform float sun_seasonal_size_variation : hint_range(0.0, 10.0) = 1.0;
+	// How much of the sun the fog lets through on the sky (SkydomeSky.sun_fog_visibility): Godot fogs
+	// the sky but not its radiance cubemap, so the sun drawn there is dimmed by it
+	uniform float sun_fog_visibility : hint_range(0.0, 1.0) = 1.0;
 	uniform float sun_halo_size : hint_range(0.0, 2.0) = 1.0;
 	uniform float sun_halo_strength : hint_range(0.0, 10.0) = 1.5;
 	uniform float sun_atmosphere_size : hint_range(0.0, 4.0) = 1.0;
@@ -99,9 +103,6 @@ const float ASTRONOMICAL_UNIT_KM = 149597870.7;
 const float SOLAR_RADIUS_KM = 695700.0;
 const float EARTH_EQUATORIAL_RADIUS_KM = 6378.137;
 const float EARTH_POLAR_RADIUS_KM = 6356.752314245;
-const float EARTH_ORBITAL_ECCENTRICITY = 0.0167086;
-const float EARTH_SIDEREAL_YEAR_DAYS = 365.256363004;
-const float EARTH_PERIHELION_DAY = 3.0;
 
 float saturate(float value) { return clamp(value, 0.0, 1.0); }
 
@@ -122,26 +123,6 @@ float get_observer_radius_km(float latitude_rad) {
 		(equatorial_num * equatorial_num + polar_num * polar_num) /
 		(equatorial_den * equatorial_den + polar_den * polar_den)
 	);
-}
-
-float get_solar_disk_scale(float sun_alt) {
-	float day_current = rendered_day_of_year + rendered_time_of_day / 24.0;
-	float mean_anomaly = TAU * mod((day_current - EARTH_PERIHELION_DAY) / EARTH_SIDEREAL_YEAR_DAYS, 1.0);
-
-	// Seasonal size variation (Physics = 0.0167 amplitude). We scale the amplitude aggressively with the parameter.
-	// When variation is 1.0, it behaves like physics (~3.3% change).
-	// When it is 10.0, the amplitude becomes 0.167 (meaning sun is ~33% larger in winter!)
-	float dist_factor = 1.0 + (EARTH_ORBITAL_ECCENTRICITY * sun_seasonal_size_variation) * cos(mean_anomaly);
-
-	// Cinematic "Moon Illusion" magnification.
-	// Real sun doesn't grow, but perceived size increases at horizon.
-	// We use a smooth curve that doesn't feel like a "squeezed ellipsoid" transition.
-	float sun_alt_clamped = saturate(sun_alt);
-	float atmospheric_magnification = 0.45; // Max 45% larger
-	float magnification_curve = pow(1.0 - sun_alt_clamped, 2.5);
-	float atmospheric_scale = 1.0 + atmospheric_magnification * magnification_curve;
-
-	return dist_factor * atmospheric_scale;
 }
 
 // FAST RAINBOW APPROXIMATION

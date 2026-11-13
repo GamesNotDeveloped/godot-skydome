@@ -15,6 +15,15 @@ const EDITOR_ACCESS_SCRIPT_PATH := "res://addons/gnd_skydome/EditorAccess.gd"
 # The fog_density boost of the volumetric fog (vol_fog_density_boost) is tuned for the default fog
 # distances below. A fog set to reach further has to be thinner in front of the camera too, so the
 # boost follows the current fog distance; at the defaults it is unchanged.
+## The sun's disk: its radius per unit of sun_disk_size (as 1 - the cosine of its angle), the
+## Earth's orbit its season's size follows (eccentricity, the year, the perihelion's day) and how
+## much larger it is drawn low over the horizon, as the eye sees it (the "moon illusion")
+const SUN_DISK_RADIUS_PER_SIZE := 0.015
+const EARTH_ORBITAL_ECCENTRICITY := 0.0167086
+const EARTH_SIDEREAL_YEAR_DAYS := 365.256363004
+const EARTH_PERIHELION_DAY := 3.0
+const SUN_HORIZON_MAGNIFICATION := 0.45
+const SUN_HORIZON_MAGNIFICATION_EXPONENT := 2.5
 const VOL_FOG_BOOST_DAY_DISTANCE := 470.0
 const VOL_FOG_BOOST_NIGHT_DISTANCE := 200.0
 # Share of the volumetric fog length a full fog_density boost takes away
@@ -79,6 +88,15 @@ var _sky_overcast: float = 0.0
 # The share of the sun's (the moon's) direct light the clouds let through (_apply_state_params()):
 # its shadows soften as it dims (_apply_cloud_light_response())
 var _sun_transmission: float = 1.0
+## The sun's disk as the sky draws it: its radius as 1 - the cosine of its angle (the shader's
+## sun_disk_radius), and the angle itself [rad] - for what mirrors the sun to mirror it as large
+var sun_disk_radius: float = 0.0
+var sun_angular_radius: float = 0.0
+## How much of the sun the fog lets through on the sky - its depth fog (fog_sky_affect) and its
+## volumetric fog (volumetric_fog_sky_affect, through the fog's whole length). Godot fogs the sky
+## drawn, not its radiance cubemap: the sun drawn into the cubemap is dimmed by it, and so may a
+## game's glint of the sun off what shines
+var sun_fog_visibility: float = 1.0
 var _sun_direction: Vector3 = Vector3.UP
 var _moon_direction: Vector3 = Vector3.DOWN
 # The time the light is turned to (day * 24 + hour) - the drawn one, or behind it by light_update_mode
@@ -561,11 +579,11 @@ func _success(x):
 @export var sun_disk_size: float = 0.04:
     set(v):
         sun_disk_size = v
-        _set_shader_param("sun_disk_size", v)
+        _update_sun_disk()
 @export_range(0.0, 50.0, 0.01) var sun_seasonal_size_variation: float = 30.0:
     set(v):
         sun_seasonal_size_variation = v
-        _set_shader_param("sun_seasonal_size_variation", v)
+        _update_sun_disk()
 @export var sun_disk_softness: float = 0.2:
     set(v):
         sun_disk_softness = v
@@ -1124,8 +1142,7 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("stars_edge_softness", shader_stars_edge_softness)
 
     _sky_material.set_shader_parameter("sun_color", sun_day_color)
-    _sky_material.set_shader_parameter("sun_disk_size", sun_disk_size)
-    _sky_material.set_shader_parameter("sun_seasonal_size_variation", sun_seasonal_size_variation)
+    _sky_material.set_shader_parameter("sun_disk_radius", sun_disk_radius)
     _sky_material.set_shader_parameter("sun_disk_softness", sun_disk_softness)
     _sky_material.set_shader_parameter("sun_disk_strength", sun_disk_strength)
     _sky_material.set_shader_parameter("sun_halo_size", sun_halo_size)
@@ -1370,6 +1387,7 @@ func _update_sun_transform() -> void:
     _set_shader_param("celestial_matrix", celestial_basis)
     _set_shader_param("rendered_day_of_year", float(_rendered_day))
     _set_shader_param("rendered_time_of_day", _rendered_time)
+    _update_sun_disk()
     _set_shader_param("observer_latitude_deg", latitude)
 
     var dir_to_basis = func(dir: Vector3) -> Basis:
@@ -1553,6 +1571,9 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     )
     env.volumetric_fog_length = maxf(2.0, full_vol_fog_length * (1.0 - VOL_FOG_LENGTH_SHRINK * fog_density_boost))
     env.volumetric_fog_density = vol_fog_optical_depth / env.volumetric_fog_length
+    sun_fog_visibility = _get_sun_fog_visibility(env)
+    if _sky_material:
+        _sky_material.set_shader_parameter("sun_fog_visibility", sun_fog_visibility)
 
     var base_emission := Color(0, 0, 0)
     var volumetric_emission := base_emission * current_storm_fog_emission_scale
@@ -1570,6 +1591,32 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     env.fog_sun_scatter = fog_sun_scatter + fog_sunset_sun_scatter * sunset_seen
     if clouds_renderer and _sky_material:
         clouds_renderer.sync(self, _sky_material)
+
+
+## sun_disk_radius and sun_angular_radius of the sun drawn now: sun_disk_size, larger by the season
+## (sun_seasonal_size_variation times the orbit's eccentricity) and low over the horizon
+func _update_sun_disk() -> void:
+    var day_current: float = float(_rendered_day) + _rendered_time / 24.0
+    var mean_anomaly: float = TAU * fmod((day_current - EARTH_PERIHELION_DAY) / EARTH_SIDEREAL_YEAR_DAYS, 1.0)
+    var season_scale: float = 1.0 + EARTH_ORBITAL_ECCENTRICITY * sun_seasonal_size_variation * cos(mean_anomaly)
+    var horizon_scale: float = 1.0 + SUN_HORIZON_MAGNIFICATION * pow(
+        1.0 - clampf(_sun_direction.y, 0.0, 1.0), SUN_HORIZON_MAGNIFICATION_EXPONENT)
+    sun_disk_radius = SUN_DISK_RADIUS_PER_SIZE * sun_disk_size * season_scale * horizon_scale
+    sun_angular_radius = acos(clampf(1.0 - sun_disk_radius, -1.0, 1.0))
+    _set_shader_param("sun_disk_radius", sun_disk_radius)
+
+
+## sun_fog_visibility of the environment's fog as Godot draws it over the sky (sky.glsl): the depth
+## fog takes fog_sky_affect of it, the volumetric fog lets through what its whole length does,
+## volumetric_fog_sky_affect of the way
+func _get_sun_fog_visibility(env: Environment) -> float:
+    var visibility := 1.0
+    if env.fog_enabled:
+        visibility *= 1.0 - env.fog_sky_affect
+    if env.volumetric_fog_enabled:
+        var transmittance := exp(-env.volumetric_fog_density * env.volumetric_fog_length)
+        visibility *= lerpf(1.0, transmittance, env.volumetric_fog_sky_affect)
+    return visibility
 
 
 func _get_all_compositors() -> Array[Compositor]:
