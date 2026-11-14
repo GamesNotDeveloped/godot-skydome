@@ -1,3 +1,45 @@
+// The sun as the sky draws it in the direction dir - its disk, flattened and blurred low over the
+// horizon, its halo and the glow about it - in active_sun_color, as much of it as visibility
+// lets through. The sky and its radiance cubemap both take it: what reflects the sky reflects
+// the sun as it is drawn, not as a speck of the directional light alone.
+vec3 sun_light(vec3 dir, float sun_alt, float sun_dot, vec3 active_sun_color, float visibility) {
+	vec3 sun_dir_norm = custom_sun_dir;
+	vec3 sun_right = normalize(cross(vec3(0.0, 1.0, 0.0), sun_dir_norm));
+	if (length(sun_right) < 0.001) sun_right = vec3(1.0, 0.0, 0.0);
+	vec3 sun_up = cross(sun_dir_norm, sun_right);
+
+	float sun_x = dot(dir, sun_right);
+	float sun_y = dot(dir, sun_up);
+
+	// Vertical flattening (Atmospheric Refraction)
+	float sun_flattening = 1.0 + 0.3 * pow(1.0 - saturate(sun_alt * 4.0 + 0.1), 3.0);
+	float sun_r2 = sun_x * sun_x + sun_y * sun_y * (sun_flattening * sun_flattening);
+	float flattened_sun_dot = sqrt(max(0.0, 1.0 - sun_r2));
+	if (sun_dot < 0.0) flattened_sun_dot = -flattened_sun_dot; // Prevent appearing on the opposite hemisphere
+
+	// Dynamic atmospheric blur at the horizon
+	float horizon_blur_factor = pow(1.0 - saturate(sun_alt * 5.0 + 0.1), 2.5);
+
+	float disk_radius = sun_disk_radius;
+	// Increase softness massively at the horizon (up to 8x softer)
+	float disk_soft = disk_radius * sun_disk_softness * (1.0 + horizon_blur_factor * 8.0);
+	float disk = smoothstep(1.0 - disk_radius - disk_soft, 1.0 - disk_radius, flattened_sun_dot);
+
+	float sun_glow_visibility = smoothstep(-0.10, 0.04, sun_alt);
+	sun_glow_visibility = pow(sun_glow_visibility, 0.6);
+
+	// Also expand the halo slightly at the horizon to merge with the blurred disk
+	float active_halo_size = sun_halo_size * (1.0 + horizon_blur_factor * 1.5);
+	float halo = pow(saturate(sun_dot), 1.0 / (0.08 * active_halo_size)) * sun_halo_strength * sun_glow_visibility;
+	float atmosphere = pow(saturate(sun_dot), 1.0 / (0.35 * sun_atmosphere_size)) * sun_atmosphere_strength * sun_glow_visibility;
+
+	vec3 sun_body = active_sun_color * sun_energy_scale;
+
+	// Sun extinction at horizon (solid drawing)
+	float sun_extinction = mix(1.0, 0.2, pow(1.0 - saturate(sun_alt * 5.0 + 0.1), 2.0));
+	return sun_body * (disk * sun_disk_strength * sun_extinction + halo + atmosphere) * visibility;
+}
+
 // The sky (sky()): the day's, the sunset's and the night's gradient, the stars, the haze, the
 // rainbow, the sun and the moon, the clouds over them (clouds(), included before this) and the
 // fog towards the horizon. With CLOUDS_HALF_RES defined (and use_half_res_pass) the clouds are drawn
@@ -70,9 +112,25 @@ void sky() {
 	night_base += night_horizon_color * night_glow * horizon_glow_strength;
 	night_base *= night_sky_energy;
 
-	// The radiance cubemap (and the ambient light from it) only takes the gradient
+	float sun_dot = dot(dir, custom_sun_dir);
+	// the sun reddens over a window of its own, higher than the sky's sunset (sunset_disc_fade_*)
+	float sun_reddening = smoothstep(-0.2, 0.05, sun_alt)
+			* (1.0 - smoothstep(sunset_disc_fade_start, sunset_disc_fade_end, sun_alt)) * (1.0 - overcast_veil);
+	vec3 active_sun_color = mix(sun_color, sunset_sun_color, sun_reddening);
+
+	// The radiance cubemap (and the ambient light from it) takes the gradient and the sun, so that
+	// what reflects the sky - water above all - mirrors the sun's disk and its glow; it has no clouds
+	// (the half resolution pass's), so the sun is as bright as the cover lets its light through
+	// (sun_transmission), and no fog (Godot fogs only the sky drawn), so the sun goes behind the fog
+	// by sun_fog_visibility
 	if (AT_CUBEMAP_PASS) {
 		COLOR = mix(night_base, day_base, day_blend);
+		if (high_quality_sky) {
+			COLOR += sun_light(dir, sun_alt, sun_dot, active_sun_color,
+					sun_transmission * sun_fog_visibility);
+		} else {
+			COLOR += sun_color * smoothstep(0.998, 1.0, sun_dot) * 5.0 * sun_fog_visibility;
+		}
 	}
 #ifdef CLOUDS_HALF_RES
 	else if (AT_HALF_RES_PASS) {
@@ -83,17 +141,11 @@ void sky() {
 #endif
 	else {
 	vec3 final_color = mix(night_base, day_base, day_blend);
-	float sun_dot = dot(dir, custom_sun_dir);
 
 	if (!high_quality_sky) {
 		float sun_disk = smoothstep(0.998, 1.0, sun_dot);
 		final_color += sun_color * sun_disk * 5.0;
 	} else {
-
-	// the sun reddens over a window of its own, higher than the sky's sunset (sunset_disc_fade_*)
-	float sun_reddening = smoothstep(-0.2, 0.05, sun_alt)
-			* (1.0 - smoothstep(sunset_disc_fade_start, sunset_disc_fade_end, sun_alt)) * (1.0 - overcast_veil);
-	vec3 active_sun_color = mix(sun_color, sunset_sun_color, sun_reddening);
 
 	vec3 celestial_dir = celestial_matrix * dir;
 	if (day_blend < 0.99 && stars_energy > 0.001) {
@@ -151,44 +203,10 @@ void sky() {
 	// lighting the rain is whoever sets rainbow_intensity's to tell
 	float rainbow_visibility = rainbow_intensity * rainbow_day_visibility * rainbow_altitude_visibility * rainbow_horizon_visibility;
 
-	// Sun
-	vec3 sun_dir_norm = custom_sun_dir;
-	vec3 sun_right = normalize(cross(vec3(0.0, 1.0, 0.0), sun_dir_norm));
-	if (length(sun_right) < 0.001) sun_right = vec3(1.0, 0.0, 0.0);
-	vec3 sun_up = cross(sun_dir_norm, sun_right);
-
-	float sun_x = dot(dir, sun_right);
-	float sun_y = dot(dir, sun_up);
-
-	// Vertical flattening (Atmospheric Refraction)
-	float sun_flattening = 1.0 + 0.3 * pow(1.0 - saturate(sun_alt * 4.0 + 0.1), 3.0);
-	float sun_r2 = sun_x * sun_x + sun_y * sun_y * (sun_flattening * sun_flattening);
-	float flattened_sun_dot = sqrt(max(0.0, 1.0 - sun_r2));
-	if (sun_dot < 0.0) flattened_sun_dot = -flattened_sun_dot; // Prevent appearing on the opposite hemisphere
-
-	// Dynamic atmospheric blur at the horizon
-	float horizon_blur_factor = pow(1.0 - saturate(sun_alt * 5.0 + 0.1), 2.5);
-
-	float disk_radius = 0.015 * sun_disk_size * get_solar_disk_scale(sun_alt);
-	// Increase softness massively at the horizon (up to 8x softer)
-	float disk_soft = disk_radius * sun_disk_softness * (1.0 + horizon_blur_factor * 8.0);
-	float disk = smoothstep(1.0 - disk_radius - disk_soft, 1.0 - disk_radius, flattened_sun_dot);
-
-	float sun_glow_visibility = smoothstep(-0.10, 0.04, sun_alt);
-	sun_glow_visibility = pow(sun_glow_visibility, 0.6);
-
-	// Also expand the halo slightly at the horizon to merge with the blurred disk
-	float active_halo_size = sun_halo_size * (1.0 + horizon_blur_factor * 1.5);
-	float halo = pow(saturate(sun_dot), 1.0 / (0.08 * active_halo_size)) * sun_halo_strength * sun_glow_visibility;
-	float atmosphere = pow(saturate(sun_dot), 1.0 / (0.35 * sun_atmosphere_size)) * sun_atmosphere_strength * sun_glow_visibility;
-
-	vec3 sun_body = active_sun_color * sun_energy_scale;
-
-	// Sun extinction at horizon (solid drawing)
-	float sun_extinction = mix(1.0, 0.2, pow(1.0 - saturate(sun_alt * 5.0 + 0.1), 2.0));
-	final_color += sun_body * disk * sky_visibility * sun_disk_strength * sun_extinction;
-	final_color += sun_body * halo * sky_visibility;
-	final_color += sun_body * atmosphere * sky_visibility;
+	// the sun in a gap of the clouds whole, through a cloud as much as the clouds let it through
+	// (clouds_sun_transmission(), added over the cloud below)
+	vec3 sun_seen = sun_light(dir, sun_alt, sun_dot, active_sun_color, 1.0);
+	final_color += sun_seen;
 
 	// Moon
 	float moon_dot = dot(dir, custom_moon_dir);
@@ -250,7 +268,8 @@ void sky() {
 	final_color += glow_color * moon_visibility;
 
 	// Clouds (premultiplied, the moon's corona in a thin one theirs)
-	final_color = final_color * (1.0 - cloud_mask) + sky_clouds.rgb;
+	final_color = final_color * (1.0 - cloud_mask) + sky_clouds.rgb
+			+ sun_seen * cloud_mask * clouds_sun_transmission(dir, cloud_mask);
 
 	// The rainbow, over the clouds it is seen against
 	if (rainbow_visibility > 0.001) {

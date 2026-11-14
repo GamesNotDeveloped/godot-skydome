@@ -1,6 +1,6 @@
-// The clouds of the sky (Skydome's own, without a SkydomeClouds): two noise textures on a plane over
-// the observer, scrolled by the wind, warped and evolving. clouds() - their colour premultiplied by
-// how much they cover (alpha), with the moon's corona in a thin one
+// The clouds of the sky (Skydome's own, SkydomeClouds2D): two noise textures on a plane over the
+// observer, scrolled by the wind, warped and evolving. clouds() - their colour premultiplied by how
+// much they cover (alpha), with the moon's corona in a thin one
 
 uniform sampler2D cloud_tex_a : source_color, filter_linear, repeat_enable;
 uniform sampler2D cloud_tex_b : source_color, filter_linear, repeat_enable;
@@ -118,4 +118,11 @@ vec4 clouds(vec3 dir, vec2 pixel, float day_blend, float sunset_blend) {
 	cloud_col += moon_color * corona * moon_corona_strength * (1.0 - cloud_density_tint);
 
 	return vec4(cloud_col * cloud_mask, cloud_mask);
+}
+
+// How much of the sun behind them these clouds let through where they cover cloud_mask of the sky in
+// dir: as much as the cover lets its light through (sun_transmission) - a layer of no thickness of its
+// own, so the sun seen through it is as bright as it lights the ground
+float clouds_sun_transmission(vec3 dir, float cloud_mask) {
+	return sun_transmission;
 }

@@ -10,11 +10,19 @@ signal time_changed(day: int, time: float)
 signal day_changed(day: int)
 
 const SUN_SHAFTS_EFFECT_SCRIPT = preload("SunShaftsCompositorEffect.gd")
-const FILMIC_SKY_SHADER := preload("res://addons/gnd_skydome/filmic_procedural_sky.gdshader")
 const EDITOR_ACCESS_SCRIPT_PATH := "res://addons/gnd_skydome/EditorAccess.gd"
 # The fog_density boost of the volumetric fog (vol_fog_density_boost) is tuned for the default fog
 # distances below. A fog set to reach further has to be thinner in front of the camera too, so the
 # boost follows the current fog distance; at the defaults it is unchanged.
+## The sun's disk: its radius per unit of sun_disk_size (as 1 - the cosine of its angle), the
+## Earth's orbit its season's size follows (eccentricity, the year, the perihelion's day) and how
+## much larger it is drawn low over the horizon, as the eye sees it (the "moon illusion")
+const SUN_DISK_RADIUS_PER_SIZE := 0.015
+const EARTH_ORBITAL_ECCENTRICITY := 0.0167086
+const EARTH_SIDEREAL_YEAR_DAYS := 365.256363004
+const EARTH_PERIHELION_DAY := 3.0
+const SUN_HORIZON_MAGNIFICATION := 0.45
+const SUN_HORIZON_MAGNIFICATION_EXPONENT := 2.5
 const VOL_FOG_BOOST_DAY_DISTANCE := 470.0
 const VOL_FOG_BOOST_NIGHT_DISTANCE := 200.0
 # Share of the volumetric fog length a full fog_density boost takes away
@@ -68,14 +76,28 @@ var _is_ready: bool = false
 var _is_daytime: bool = true
 var _day_blend: float = 1.0
 var _sunset_blend: float = 0.0
-var _cloud_texture_a: Texture2D
-var _cloud_texture_b: Texture2D
+# The clouds drawn while no clouds_renderer is set: Skydome's own, through the same SkydomeClouds
+var _own_clouds: SkydomeClouds = SkydomeClouds2D.new()
 var _camera: Camera3D
 var _viewport_size: Vector2 = Vector2.ZERO
 var _editor_access = null
 # What the clouds_renderer's compositor effects are, to take them out again
 var _clouds_renderer_effects: Array[CompositorEffect] = []
 var _sky_overcast: float = 0.0
+# The share of the sun's (the moon's) direct light the clouds let through (_apply_state_params()):
+# its shadows soften as it dims (_apply_cloud_light_response()), and the sun seen through a cloud
+# and mirrored in the sky's reflections is as bright as its light (the sky shader's
+# sun_transmission)
+var _sun_transmission: float = 1.0
+## The sun's disk as the sky draws it: its radius as 1 - the cosine of its angle (the shader's
+## sun_disk_radius), and the angle itself [rad] - for what mirrors the sun to mirror it as large
+var sun_disk_radius: float = 0.0
+var sun_angular_radius: float = 0.0
+## How much of the sun the fog lets through on the sky - its depth fog (fog_sky_affect) and its
+## volumetric fog (volumetric_fog_sky_affect, through the fog's whole length). Godot fogs the sky
+## drawn, not its radiance cubemap: the sun drawn into the cubemap is dimmed by it, and so may a
+## game's glint of the sun off what shines
+var sun_fog_visibility: float = 1.0
 var _sun_direction: Vector3 = Vector3.UP
 var _moon_direction: Vector3 = Vector3.DOWN
 # The time the light is turned to (day * 24 + hour) - the drawn one, or behind it by light_update_mode
@@ -346,7 +368,6 @@ func _success(x):
 @export var clouds_coverage: float = 0.405:
     set(v):
         clouds_coverage = clampf(v, 0.0, 1.0)
-        _set_shader_param("cloud_coverage", clouds_coverage)
         _update_sun_transform()
 ## How overcast a weather makes the sky besides the clouds drawn (0 - 1): the rain or the snow
 ## falling and their haze grey the sky, the sunset and the light as a cover does (sky_overcast), and
@@ -366,7 +387,7 @@ func _success(x):
 @export var clouds_softness: float = 0.2:
     set(v):
         clouds_softness = v
-        _set_shader_param("cloud_softness", v)
+        _sync_clouds()
 @export_range(0.0, 1.0, 0.001) var clouds_light_energy_overcast: float = 0.5:
     set(v):
         clouds_light_energy_overcast = clampf(v, 0.0, 1.0)
@@ -416,11 +437,15 @@ func _success(x):
     set(v):
         clouds_shadow_opacity_overcast = clampf(v, 0.0, 1.0)
         _update_sun_transform()
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.28:
+## The share of the sun's light the clouds take at which its shadows start to soften and fade: the
+## light the clouds take of the sun's beam they scatter, so its shadows soften as it dims
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.0:
     set(v):
         clouds_shadow_soften_start = clampf(v, 0.0, 1.0)
         _update_sun_transform()
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 0.9:
+## The share of the sun's light the clouds take at which its shadows are as soft and as faint as
+## clouds_shadow_angular_distance_overcast and clouds_shadow_opacity_overcast make them
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 1.0:
     set(v):
         clouds_shadow_soften_end = clampf(v, 0.0, 1.0)
         _update_sun_transform()
@@ -444,67 +469,79 @@ func _success(x):
 @export var clouds_motion_scale: float = 0.12:
     set(v):
         clouds_motion_scale = v
-        _set_shader_param("cloud_motion_scale", v)
+        _sync_clouds()
 @export var clouds_evolution_speed: float = 0.04
 @export var clouds_evolution_strength: float = 0.18:
     set(v):
         clouds_evolution_strength = v
-        _set_shader_param("cloud_evolution_strength", v)
+        _sync_clouds()
 @export var clouds_evolution_scale: float = 0.018:
     set(v):
         clouds_evolution_scale = v
-        _set_shader_param("cloud_evolution_scale", v)
+        _sync_clouds()
 @export var clouds_scroll_a: Vector2 = Vector2(0.0012, 0.00015):
     set(v):
         clouds_scroll_a = v
-        _set_shader_param("cloud_scroll_a", v)
+        _sync_clouds()
 @export var clouds_scroll_b: Vector2 = Vector2(-0.0018, 0.0004):
     set(v):
         clouds_scroll_b = v
-        _set_shader_param("cloud_scroll_b", v)
+        _sync_clouds()
 @export_subgroup("Size and shape", "clouds")
 @export var clouds_scale_a: Vector2 = Vector2(0.045, 0.055):
     set(v):
         clouds_scale_a = v
-        _set_shader_param("cloud_scale_a", v)
+        _sync_clouds()
 @export var clouds_scale_b: Vector2 = Vector2(0.082, 0.125):
     set(v):
         clouds_scale_b = v
-        _set_shader_param("cloud_scale_b", v)
+        _sync_clouds()
 @export_subgroup("Advanced", "clouds")
 @export var clouds_plane_height: float = 0.187:
     set(v):
         clouds_plane_height = v
-        _set_shader_param("cloud_plane_height", v)
+        _sync_clouds()
 @export var clouds_plane_curve: float = 0.595:
     set(v):
         clouds_plane_curve = v
-        _set_shader_param("cloud_plane_curve", v)
+        _sync_clouds()
 @export var clouds_warp_strength: float = 0.053:
     set(v):
         clouds_warp_strength = v
-        _set_shader_param("cloud_warp_strength", v)
+        _sync_clouds()
 @export var clouds_horizon_fade: float = 0.481:
     set(v):
         clouds_horizon_fade = v
-        _set_shader_param("cloud_horizon_fade", v)
+        _sync_clouds()
 @export var clouds_top_fade: float = 0.118:
     set(v):
         clouds_top_fade = v
-        _set_shader_param("cloud_top_fade", v)
+        _sync_clouds()
 @export var clouds_forward_scatter: float = 1.5:
     set(v):
         clouds_forward_scatter = v
-        _set_shader_param("cloud_forward_scatter", v)
+        _sync_clouds()
 @export var clouds_backscatter: float = 0.390:
     set(v):
         clouds_backscatter = v
-        _set_shader_param("cloud_backscatter", v)
+        _sync_clouds()
 ## Share of the sun's or the moon's light a full cloud cover takes away. Without it an overcast
 ## night stays moonlit: the clouds cooled the light and softened its shadows, but never dimmed it.
 @export_range(0.0, 1.0, 0.01) var clouds_light_occlusion: float = 0.65:
     set(v):
         clouds_light_occlusion = v
+        _update_sun_transform()
+## The sky's overcast from which a heavy cover lets less and less of the sun through, after the
+## clouds' share (clouds_light_occlusion): no sun's shadow, no glint of it off water or glass under a
+## storm's clouds
+@export_range(0.0, 1.0, 0.001) var clouds_sun_hidden_start: float = 0.75:
+    set(v):
+        clouds_sun_hidden_start = clampf(v, 0.0, 1.0)
+        _update_sun_transform()
+## The sky's overcast from which the cover lets none of the sun through
+@export_range(0.0, 1.0, 0.001) var clouds_sun_hidden_end: float = 0.98:
+    set(v):
+        clouds_sun_hidden_end = clampf(v, 0.0, 1.0)
         _update_sun_transform()
 ## Share of the ambient light a full cloud cover takes away - the sky's light, which an overcast dims
 ## far less than the sun's
@@ -542,11 +579,11 @@ func _success(x):
 @export var sun_disk_size: float = 0.04:
     set(v):
         sun_disk_size = v
-        _set_shader_param("sun_disk_size", v)
+        _update_sun_disk()
 @export_range(0.0, 50.0, 0.01) var sun_seasonal_size_variation: float = 30.0:
     set(v):
         sun_seasonal_size_variation = v
-        _set_shader_param("sun_seasonal_size_variation", v)
+        _update_sun_disk()
 @export var sun_disk_softness: float = 0.2:
     set(v):
         sun_disk_softness = v
@@ -840,8 +877,8 @@ func process(_delta: float) -> void:
     _viewport_size = _get_active_viewport_size()
     _advance_time_transition(_delta)
     _process_sunshafts()
-    if clouds_renderer and _sky_material:
-        clouds_renderer.process(self, _sky_material, _delta)
+    if _sky_material:
+        _get_clouds().process(self, _sky_material, _delta)
 
 
 func apply_now() -> void:
@@ -881,7 +918,7 @@ func _refresh() -> void:
 
 func _get_final_cloud_density() -> float:
     var base_cloud_density := clouds_coverage
-    var renderer_cover := clouds_renderer.get_cover(self) if clouds_renderer else -1.0
+    var renderer_cover := _get_clouds().get_cover(self)
     if renderer_cover >= 0.0:
         base_cloud_density = clampf(renderer_cover, 0.0, 1.0)
     var current_cloud_overcast_intensity := 0.0
@@ -891,13 +928,15 @@ func _get_final_cloud_density() -> float:
     return lerpf(base_cloud_density, maxf(base_cloud_density, 0.88), cloud_overcast_mix)
 
 
+## The sun's shadows softened and faded as much as the clouds dim the sun (_apply_state_params()):
+## the clouds drawn and a weather's - a rain's grey sky kept the clear day's sharp shadows under it,
+## and a half-clear sky blurred them while it kept the sun bright
 func _apply_cloud_light_response(light: DirectionalLight3D) -> void:
     if not light:
         return
-    var final_cloud_density := _get_final_cloud_density()
     var soften_start := minf(clouds_shadow_soften_start, clouds_shadow_soften_end)
     var soften_end := maxf(clouds_shadow_soften_start, clouds_shadow_soften_end)
-    var shadow_soften := smoothstep(soften_start, soften_end, final_cloud_density)
+    var shadow_soften := smoothstep(soften_start, soften_end, 1.0 - _sun_transmission)
     light.light_angular_distance = lerpf(
         clouds_shadow_angular_distance_clear,
         clouds_shadow_angular_distance_overcast,
@@ -996,30 +1035,12 @@ func _init_sky() -> void:
 
     if not _sky_material:
         _sky_material = ShaderMaterial.new()
-    var sky_shader: Shader = clouds_renderer.get_sky_shader() if clouds_renderer else FILMIC_SKY_SHADER
+    var sky_shader: Shader = _get_clouds().get_sky_shader()
     if _sky_material.shader != sky_shader:
         _sky_material.shader = sky_shader
 
-    if not _cloud_texture_a:
-        _cloud_texture_a = NoiseTexture2D.new()
-        _cloud_texture_a.seamless = true
-        var noise := FastNoiseLite.new()
-        _cloud_texture_a.noise = noise
-
-    if not _cloud_texture_b:
-        _cloud_texture_b = NoiseTexture2D.new()
-        _cloud_texture_b.seamless = true
-        var noise := FastNoiseLite.new()
-        _cloud_texture_b.noise = noise
-
-    _cloud_texture_a.noise.seed = clouds_generator_seed_a
-    _cloud_texture_a.noise.frequency = clouds_generator_frequency_a * 0.01
-    _cloud_texture_b.noise.seed = clouds_generator_seed_b
-    _cloud_texture_b.noise.frequency = clouds_generator_frequency_b * 0.01
-
     _environment.sky.sky_material = _sky_material
-    if clouds_renderer:
-        clouds_renderer.setup(self, _sky_material)
+    _get_clouds().setup(self, _sky_material)
 
     _sync_sky_shader_params()
     _reset_cloud_time_tracking()
@@ -1103,8 +1124,7 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("stars_edge_softness", shader_stars_edge_softness)
 
     _sky_material.set_shader_parameter("sun_color", sun_day_color)
-    _sky_material.set_shader_parameter("sun_disk_size", sun_disk_size)
-    _sky_material.set_shader_parameter("sun_seasonal_size_variation", sun_seasonal_size_variation)
+    _sky_material.set_shader_parameter("sun_disk_radius", sun_disk_radius)
     _sky_material.set_shader_parameter("sun_disk_softness", sun_disk_softness)
     _sky_material.set_shader_parameter("sun_disk_strength", sun_disk_strength)
     _sky_material.set_shader_parameter("sun_halo_size", sun_halo_size)
@@ -1121,35 +1141,16 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("moon_glow_size", moon_glow_size)
     _sky_material.set_shader_parameter("moon_texture", moon_texture)
 
-    _sky_material.set_shader_parameter("cloud_tex_a", _cloud_texture_a)
-    _sky_material.set_shader_parameter("cloud_tex_b", _cloud_texture_b)
-    _sky_material.set_shader_parameter("cloud_scroll_a", clouds_scroll_a)
-    _sky_material.set_shader_parameter("cloud_scroll_b", clouds_scroll_b)
-    _sky_material.set_shader_parameter("cloud_scale_a", clouds_scale_a)
-    _sky_material.set_shader_parameter("cloud_scale_b", clouds_scale_b)
-    _sky_material.set_shader_parameter("cloud_plane_height", clouds_plane_height)
-    _sky_material.set_shader_parameter("cloud_plane_curve", clouds_plane_curve)
-    _sky_material.set_shader_parameter("cloud_warp_strength", clouds_warp_strength)
-    _sky_material.set_shader_parameter("cloud_coverage", clouds_coverage)
-    _sky_material.set_shader_parameter("cloud_softness", clouds_softness)
+    # what every clouds' sky takes of Skydome: their opacity and their colours (the rest is theirs,
+    # _sync_clouds())
     _sky_material.set_shader_parameter("cloud_opacity", clouds_opacity)
-    _sky_material.set_shader_parameter("cloud_horizon_fade", clouds_horizon_fade)
-    _sky_material.set_shader_parameter("cloud_top_fade", clouds_top_fade)
     _sky_material.set_shader_parameter("cloud_light_color", clouds_color_light)
     _sky_material.set_shader_parameter("cloud_shadow_color", clouds_color_shadow)
-    _sky_material.set_shader_parameter("cloud_forward_scatter", clouds_forward_scatter)
-    _sky_material.set_shader_parameter("cloud_backscatter", clouds_backscatter)
     _sky_material.set_shader_parameter("sun_cloud_occlusion", clouds_sun_occlusion)
+    _sky_material.set_shader_parameter("sun_transmission", _sun_transmission)
 
     _sky_material.set_shader_parameter("cloud_time", _get_cloud_time_value())
-    _sky_material.set_shader_parameter("cloud_motion_time", _cloud_motion_time)
-    _sky_material.set_shader_parameter("cloud_evolution_time", _cloud_evolution_time)
-    _sky_material.set_shader_parameter("cloud_motion_scale", clouds_motion_scale)
-    _sky_material.set_shader_parameter("cloud_evolution_strength", clouds_evolution_strength)
-    _sky_material.set_shader_parameter("cloud_evolution_scale", clouds_evolution_scale)
-    _apply_cloud_wind_params()
-    if clouds_renderer:
-        clouds_renderer.sync(self, _sky_material)
+    _sync_clouds()
 
 func _get_cloud_time_value() -> float:
     return ((float(_rendered_day - 1) * 24.0) + _rendered_time) * clouds_time_scale
@@ -1161,8 +1162,7 @@ func _get_rendered_total_hours() -> float:
 
 func _reset_cloud_time_tracking() -> void:
     _last_cloud_total_hours = _get_rendered_total_hours()
-    _set_shader_param("cloud_motion_time", _cloud_motion_time)
-    _set_shader_param("cloud_evolution_time", _cloud_evolution_time)
+    _sync_clouds()
 
 
 func _update_cloud_time(current_total_hours: float = INF) -> void:
@@ -1177,8 +1177,7 @@ func _update_cloud_time(current_total_hours: float = INF) -> void:
         _cloud_evolution_time += delta_world_seconds * clouds_evolution_speed
 
     _set_shader_param("cloud_time", _get_cloud_time_value())
-    _set_shader_param("cloud_motion_time", _cloud_motion_time)
-    _set_shader_param("cloud_evolution_time", _cloud_evolution_time)
+    _sync_clouds()
 
 
 func _get_cloud_wind_speed() -> float:
@@ -1191,14 +1190,19 @@ func _get_cloud_wind_direction() -> Vector2:
     return clouds_wind_direction.normalized()
 
 
-func _apply_cloud_wind_params() -> void:
-    _sky_material.set_shader_parameter("cloud_wind_direction", _get_cloud_wind_direction())
-    _sky_material.set_shader_parameter("cloud_wind_speed", _get_cloud_wind_speed())
-
-
 func _update_cloud_wind() -> void:
+    _sync_clouds()
+
+
+## The clouds drawn: clouds_renderer's, or Skydome's own (SkydomeClouds2D)
+func _get_clouds() -> SkydomeClouds:
+    return clouds_renderer if clouds_renderer else _own_clouds
+
+
+## The clouds' own uniforms set again (SkydomeClouds.sync()): their state of Skydome's changed
+func _sync_clouds() -> void:
     if _sky_material:
-        _apply_cloud_wind_params()
+        _get_clouds().sync(self, _sky_material)
 
 
 func _request_time_update(snap: bool = false) -> void:
@@ -1349,6 +1353,7 @@ func _update_sun_transform() -> void:
     _set_shader_param("celestial_matrix", celestial_basis)
     _set_shader_param("rendered_day_of_year", float(_rendered_day))
     _set_shader_param("rendered_time_of_day", _rendered_time)
+    _update_sun_disk()
     _set_shader_param("observer_latitude_deg", latitude)
 
     var dir_to_basis = func(dir: Vector3) -> Basis:
@@ -1440,8 +1445,7 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     var current_vol_fog_density := clampf(base_vol_fog_density + current_vol_fog_density_boost, 0.0, 1.0)
 
     var cloud_mix := clampf(current_cloud_overcast_intensity * 0.8, 0.0, 1.0)
-    if clouds_renderer:
-        cloud_mix = maxf(cloud_mix, clampf(clouds_renderer.get_storm_darkening(self), 0.0, 1.0))
+    cloud_mix = maxf(cloud_mix, clampf(_get_clouds().get_storm_darkening(self), 0.0, 1.0))
     var final_cloud_density := _get_final_cloud_density()
     var sky_overcast := clampf(maxf(maxf(final_cloud_density, cloud_mix), weather_overcast), 0.0, 1.0)
     _sky_overcast = sky_overcast
@@ -1452,7 +1456,6 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     var sunset_seen := _sunset_blend * (1.0 - overcast_veil)
     _set_shader_param("overcast", sky_overcast)
 
-    _set_shader_param("cloud_coverage", final_cloud_density)
     _set_shader_param("cloud_opacity", lerpf(clouds_opacity, maxf(clouds_opacity, 0.95), clampf(sky_overcast * 0.85, 0.0, 1.0)))
     _set_shader_param("cloud_shadow_color", clouds_color_shadow)
     _set_shader_param("cloud_light_color", clouds_color_light.lerp(Color(0.66, 0.7, 0.78, 1.0), clampf(sky_overcast * 0.35, 0.0, 1.0)))
@@ -1466,15 +1469,22 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     _set_shader_param("moon_size", lerpf(moon_size, moon_size * 0.72, cloud_mix * 0.85))
     _set_shader_param("moon_glow_strength", maxf(0.0, moon_glow_strength * (1.0 - cloud_mix * 0.96)))
 
+    var light_occlusion := clouds_light_occlusion
+    light_occlusion *= clampf(_get_clouds().get_light_occlusion_share(self), 0.0, 1.0)
+    # the clouds' share less what their shadows on the ground take; a weather's in full
+    _sun_transmission = 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
+        weather_overcast * clouds_light_occlusion)
+    # the shadows on the ground take their share of a broken cover's light only: a heavy one hides
+    # the sun itself, its glint off water and glass too
+    _sun_transmission *= 1.0 - smoothstep(minf(clouds_sun_hidden_start, clouds_sun_hidden_end),
+        maxf(clouds_sun_hidden_start, clouds_sun_hidden_end), sky_overcast)
+    # the sun seen through the clouds as bright as its light is (sky_atmosphere.gdshaderinc)
+    _set_shader_param("sun_transmission", _sun_transmission)
+
     if light:
         if _is_daytime:
             light.light_color = day_light_color.lerp(sunset_light_color, sunset_seen)
-        var light_occlusion := clouds_light_occlusion
-        if clouds_renderer:
-            light_occlusion *= clampf(clouds_renderer.get_light_occlusion_share(self), 0.0, 1.0)
-        # the clouds' share less what their shadows on the ground take; a weather's in full
-        light.light_energy *= 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
-            weather_overcast * clouds_light_occlusion)
+        light.light_energy *= _sun_transmission
         light.light_energy += current_lightning_flash * lerpf(storm_flash_light_energy_clear, storm_flash_light_energy_overcast, sky_overcast)
         light.light_color = light.light_color.lerp(Color(0.58, 0.62, 0.68, 1.0), overcast_cooling * 0.94)
         light.light_color = light.light_color.lerp(storm_flash_light_color, current_lightning_flash * 0.8)
@@ -1527,6 +1537,9 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     )
     env.volumetric_fog_length = maxf(2.0, full_vol_fog_length * (1.0 - VOL_FOG_LENGTH_SHRINK * fog_density_boost))
     env.volumetric_fog_density = vol_fog_optical_depth / env.volumetric_fog_length
+    sun_fog_visibility = _get_sun_fog_visibility(env)
+    if _sky_material:
+        _sky_material.set_shader_parameter("sun_fog_visibility", sun_fog_visibility)
 
     var base_emission := Color(0, 0, 0)
     var volumetric_emission := base_emission * current_storm_fog_emission_scale
@@ -1542,8 +1555,33 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
 
     # the fog brightened towards the sun, by the sunrise's and the sunset's light the more
     env.fog_sun_scatter = fog_sun_scatter + fog_sunset_sun_scatter * sunset_seen
-    if clouds_renderer and _sky_material:
-        clouds_renderer.sync(self, _sky_material)
+    _sync_clouds()
+
+
+## sun_disk_radius and sun_angular_radius of the sun drawn now: sun_disk_size, larger by the season
+## (sun_seasonal_size_variation times the orbit's eccentricity) and low over the horizon
+func _update_sun_disk() -> void:
+    var day_current: float = float(_rendered_day) + _rendered_time / 24.0
+    var mean_anomaly: float = TAU * fmod((day_current - EARTH_PERIHELION_DAY) / EARTH_SIDEREAL_YEAR_DAYS, 1.0)
+    var season_scale: float = 1.0 + EARTH_ORBITAL_ECCENTRICITY * sun_seasonal_size_variation * cos(mean_anomaly)
+    var horizon_scale: float = 1.0 + SUN_HORIZON_MAGNIFICATION * pow(
+        1.0 - clampf(_sun_direction.y, 0.0, 1.0), SUN_HORIZON_MAGNIFICATION_EXPONENT)
+    sun_disk_radius = SUN_DISK_RADIUS_PER_SIZE * sun_disk_size * season_scale * horizon_scale
+    sun_angular_radius = acos(clampf(1.0 - sun_disk_radius, -1.0, 1.0))
+    _set_shader_param("sun_disk_radius", sun_disk_radius)
+
+
+## sun_fog_visibility of the environment's fog as Godot draws it over the sky (sky.glsl): the depth
+## fog takes fog_sky_affect of it, the volumetric fog lets through what its whole length does,
+## volumetric_fog_sky_affect of the way
+func _get_sun_fog_visibility(env: Environment) -> float:
+    var visibility := 1.0
+    if env.fog_enabled:
+        visibility *= 1.0 - env.fog_sky_affect
+    if env.volumetric_fog_enabled:
+        var transmittance := exp(-env.volumetric_fog_density * env.volumetric_fog_length)
+        visibility *= lerpf(1.0, transmittance, env.volumetric_fog_sky_affect)
+    return visibility
 
 
 func _get_all_compositors() -> Array[Compositor]:
@@ -1619,13 +1657,13 @@ func _get_or_create_compositor() -> Compositor:
     return compositor
 
 
-## The clouds_renderer's compositor effects, after Skydome's own
+## The clouds' compositor effects (_get_clouds()), after Skydome's own
 func _install_clouds_renderer_effects() -> void:
     _remove_clouds_renderer_effects()
-    if not clouds_renderer or not _is_ready:
+    if not _is_ready:
         return
     var added: Array[CompositorEffect] = []
-    added.assign(clouds_renderer.get_compositor_effects(self))
+    added.assign(_get_clouds().get_compositor_effects(self))
     if added.is_empty():
         return
     var compositor := _get_or_create_compositor()
@@ -1768,6 +1806,16 @@ func get_cloud_wind_speed() -> float:
 ## The clouds' own time, as they drift and change: what Skydome's clouds are moved by
 func get_cloud_motion_time() -> float:
     return _cloud_motion_time
+
+
+## The clouds' own time of change: what Skydome's clouds take their shape anew by
+func get_cloud_evolution_time() -> float:
+    return _cloud_evolution_time
+
+
+## How much of the sky the clouds cover (0 - 1): the clouds drawn's, as the light takes it
+func get_cloud_cover() -> float:
+    return _get_final_cloud_density()
 
 
 func get_sky_material() -> ShaderMaterial:

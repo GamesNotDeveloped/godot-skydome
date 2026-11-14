@@ -403,11 +403,14 @@ var _rid: RID = SkydomeServer.skydome_create()
     set(v):
         clouds_shadow_opacity_overcast = v
         _set_param(&"clouds_shadow_opacity_overcast", v)
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.28:
+## The share of the sun's light the clouds take at which its shadows start to soften and fade
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_start: float = 0.0:
     set(v):
         clouds_shadow_soften_start = v
         _set_param(&"clouds_shadow_soften_start", v)
-@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 0.9:
+## The share of the sun's light the clouds take at which its shadows are as soft and as faint as
+## clouds_shadow_angular_distance_overcast and clouds_shadow_opacity_overcast make them
+@export_range(0.0, 1.0, 0.001) var clouds_shadow_soften_end: float = 1.0:
     set(v):
         clouds_shadow_soften_end = v
         _set_param(&"clouds_shadow_soften_end", v)
@@ -496,6 +499,18 @@ var _rid: RID = SkydomeServer.skydome_create()
     set(v):
         clouds_light_occlusion = v
         _set_param(&"clouds_light_occlusion", v)
+## The sky's overcast from which a heavy cover lets less and less of the sun through, after the
+## clouds' share (clouds_light_occlusion): no sun's shadow, no glint of it off water or glass under a
+## storm's clouds
+@export_range(0.0, 1.0, 0.001) var clouds_sun_hidden_start: float = 0.75:
+    set(v):
+        clouds_sun_hidden_start = v
+        _set_param(&"clouds_sun_hidden_start", v)
+## The sky's overcast from which the cover lets none of the sun through
+@export_range(0.0, 1.0, 0.001) var clouds_sun_hidden_end: float = 0.98:
+    set(v):
+        clouds_sun_hidden_end = v
+        _set_param(&"clouds_sun_hidden_end", v)
 ## Share of the ambient light a full cloud cover takes away - the sky's light, which an overcast dims
 ## far less than the sun's
 @export_range(0.0, 1.0, 0.01) var clouds_ambient_occlusion: float = 0.24:
