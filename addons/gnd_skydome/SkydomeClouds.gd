@@ -3,12 +3,12 @@
 class_name SkydomeClouds
 extends Resource
 
-## Clouds of another kind drawn in a Skydome's sky (Skydome.clouds_renderer) instead of its own: a
-## sky shader with them - sky_common.gdshaderinc, the clouds' own include with its uniforms and
-## vec4 clouds(vec3 dir, vec2 pixel, float day_blend, float sunset_blend) (their colour premultiplied
-## by their cover), then sky_atmosphere.gdshaderinc - their uniforms, and the compositor effects
-## they bring. Skydome keeps the sky, the sun, the moon, the fog and the light; it asks the clouds
-## how much of the sky they cover. Emitting changed sets the sky up again.
+## The clouds drawn in a Skydome's sky: its own (SkydomeClouds2D) or another kind set as
+## Skydome.clouds_renderer. A sky shader with them - sky_common.gdshaderinc, the clouds' own include
+## with its uniforms and vec4 clouds(vec3 dir, vec2 pixel, float day_blend, float sunset_blend)
+## (their colour premultiplied by their cover), then sky_atmosphere.gdshaderinc - their uniforms,
+## and the compositor effects they bring. Skydome keeps the sky, the sun, the moon, the fog and the
+## light; it asks the clouds how much of the sky they cover. Emitting changed sets the sky up again.
 
 
 ## The sky shader with these clouds

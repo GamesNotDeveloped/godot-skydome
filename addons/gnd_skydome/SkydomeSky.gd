@@ -10,7 +10,6 @@ signal time_changed(day: int, time: float)
 signal day_changed(day: int)
 
 const SUN_SHAFTS_EFFECT_SCRIPT = preload("SunShaftsCompositorEffect.gd")
-const FILMIC_SKY_SHADER := preload("res://addons/gnd_skydome/filmic_procedural_sky.gdshader")
 const EDITOR_ACCESS_SCRIPT_PATH := "res://addons/gnd_skydome/EditorAccess.gd"
 # The fog_density boost of the volumetric fog (vol_fog_density_boost) is tuned for the default fog
 # distances below. A fog set to reach further has to be thinner in front of the camera too, so the
@@ -77,8 +76,8 @@ var _is_ready: bool = false
 var _is_daytime: bool = true
 var _day_blend: float = 1.0
 var _sunset_blend: float = 0.0
-var _cloud_texture_a: Texture2D
-var _cloud_texture_b: Texture2D
+# The clouds drawn while no clouds_renderer is set: Skydome's own, through the same SkydomeClouds
+var _own_clouds: SkydomeClouds = SkydomeClouds2D.new()
 var _camera: Camera3D
 var _viewport_size: Vector2 = Vector2.ZERO
 var _editor_access = null
@@ -367,7 +366,6 @@ func _success(x):
 @export var clouds_coverage: float = 0.405:
     set(v):
         clouds_coverage = clampf(v, 0.0, 1.0)
-        _set_shader_param("cloud_coverage", clouds_coverage)
         _update_sun_transform()
 ## How overcast a weather makes the sky besides the clouds drawn (0 - 1): the rain or the snow
 ## falling and their haze grey the sky, the sunset and the light as a cover does (sky_overcast), and
@@ -387,7 +385,7 @@ func _success(x):
 @export var clouds_softness: float = 0.2:
     set(v):
         clouds_softness = v
-        _set_shader_param("cloud_softness", v)
+        _sync_clouds()
 @export_range(0.0, 1.0, 0.001) var clouds_light_energy_overcast: float = 0.5:
     set(v):
         clouds_light_energy_overcast = clampf(v, 0.0, 1.0)
@@ -469,62 +467,62 @@ func _success(x):
 @export var clouds_motion_scale: float = 0.12:
     set(v):
         clouds_motion_scale = v
-        _set_shader_param("cloud_motion_scale", v)
+        _sync_clouds()
 @export var clouds_evolution_speed: float = 0.04
 @export var clouds_evolution_strength: float = 0.18:
     set(v):
         clouds_evolution_strength = v
-        _set_shader_param("cloud_evolution_strength", v)
+        _sync_clouds()
 @export var clouds_evolution_scale: float = 0.018:
     set(v):
         clouds_evolution_scale = v
-        _set_shader_param("cloud_evolution_scale", v)
+        _sync_clouds()
 @export var clouds_scroll_a: Vector2 = Vector2(0.0012, 0.00015):
     set(v):
         clouds_scroll_a = v
-        _set_shader_param("cloud_scroll_a", v)
+        _sync_clouds()
 @export var clouds_scroll_b: Vector2 = Vector2(-0.0018, 0.0004):
     set(v):
         clouds_scroll_b = v
-        _set_shader_param("cloud_scroll_b", v)
+        _sync_clouds()
 @export_subgroup("Size and shape", "clouds")
 @export var clouds_scale_a: Vector2 = Vector2(0.045, 0.055):
     set(v):
         clouds_scale_a = v
-        _set_shader_param("cloud_scale_a", v)
+        _sync_clouds()
 @export var clouds_scale_b: Vector2 = Vector2(0.082, 0.125):
     set(v):
         clouds_scale_b = v
-        _set_shader_param("cloud_scale_b", v)
+        _sync_clouds()
 @export_subgroup("Advanced", "clouds")
 @export var clouds_plane_height: float = 0.187:
     set(v):
         clouds_plane_height = v
-        _set_shader_param("cloud_plane_height", v)
+        _sync_clouds()
 @export var clouds_plane_curve: float = 0.595:
     set(v):
         clouds_plane_curve = v
-        _set_shader_param("cloud_plane_curve", v)
+        _sync_clouds()
 @export var clouds_warp_strength: float = 0.053:
     set(v):
         clouds_warp_strength = v
-        _set_shader_param("cloud_warp_strength", v)
+        _sync_clouds()
 @export var clouds_horizon_fade: float = 0.481:
     set(v):
         clouds_horizon_fade = v
-        _set_shader_param("cloud_horizon_fade", v)
+        _sync_clouds()
 @export var clouds_top_fade: float = 0.118:
     set(v):
         clouds_top_fade = v
-        _set_shader_param("cloud_top_fade", v)
+        _sync_clouds()
 @export var clouds_forward_scatter: float = 1.5:
     set(v):
         clouds_forward_scatter = v
-        _set_shader_param("cloud_forward_scatter", v)
+        _sync_clouds()
 @export var clouds_backscatter: float = 0.390:
     set(v):
         clouds_backscatter = v
-        _set_shader_param("cloud_backscatter", v)
+        _sync_clouds()
 ## Share of the sun's or the moon's light a full cloud cover takes away. Without it an overcast
 ## night stays moonlit: the clouds cooled the light and softened its shadows, but never dimmed it.
 @export_range(0.0, 1.0, 0.01) var clouds_light_occlusion: float = 0.65:
@@ -877,8 +875,8 @@ func process(_delta: float) -> void:
     _viewport_size = _get_active_viewport_size()
     _advance_time_transition(_delta)
     _process_sunshafts()
-    if clouds_renderer and _sky_material:
-        clouds_renderer.process(self, _sky_material, _delta)
+    if _sky_material:
+        _get_clouds().process(self, _sky_material, _delta)
 
 
 func apply_now() -> void:
@@ -918,7 +916,7 @@ func _refresh() -> void:
 
 func _get_final_cloud_density() -> float:
     var base_cloud_density := clouds_coverage
-    var renderer_cover := clouds_renderer.get_cover(self) if clouds_renderer else -1.0
+    var renderer_cover := _get_clouds().get_cover(self)
     if renderer_cover >= 0.0:
         base_cloud_density = clampf(renderer_cover, 0.0, 1.0)
     var current_cloud_overcast_intensity := 0.0
@@ -1035,30 +1033,12 @@ func _init_sky() -> void:
 
     if not _sky_material:
         _sky_material = ShaderMaterial.new()
-    var sky_shader: Shader = clouds_renderer.get_sky_shader() if clouds_renderer else FILMIC_SKY_SHADER
+    var sky_shader: Shader = _get_clouds().get_sky_shader()
     if _sky_material.shader != sky_shader:
         _sky_material.shader = sky_shader
 
-    if not _cloud_texture_a:
-        _cloud_texture_a = NoiseTexture2D.new()
-        _cloud_texture_a.seamless = true
-        var noise := FastNoiseLite.new()
-        _cloud_texture_a.noise = noise
-
-    if not _cloud_texture_b:
-        _cloud_texture_b = NoiseTexture2D.new()
-        _cloud_texture_b.seamless = true
-        var noise := FastNoiseLite.new()
-        _cloud_texture_b.noise = noise
-
-    _cloud_texture_a.noise.seed = clouds_generator_seed_a
-    _cloud_texture_a.noise.frequency = clouds_generator_frequency_a * 0.01
-    _cloud_texture_b.noise.seed = clouds_generator_seed_b
-    _cloud_texture_b.noise.frequency = clouds_generator_frequency_b * 0.01
-
     _environment.sky.sky_material = _sky_material
-    if clouds_renderer:
-        clouds_renderer.setup(self, _sky_material)
+    _get_clouds().setup(self, _sky_material)
 
     _sync_sky_shader_params()
     _reset_cloud_time_tracking()
@@ -1159,35 +1139,15 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("moon_glow_size", moon_glow_size)
     _sky_material.set_shader_parameter("moon_texture", moon_texture)
 
-    _sky_material.set_shader_parameter("cloud_tex_a", _cloud_texture_a)
-    _sky_material.set_shader_parameter("cloud_tex_b", _cloud_texture_b)
-    _sky_material.set_shader_parameter("cloud_scroll_a", clouds_scroll_a)
-    _sky_material.set_shader_parameter("cloud_scroll_b", clouds_scroll_b)
-    _sky_material.set_shader_parameter("cloud_scale_a", clouds_scale_a)
-    _sky_material.set_shader_parameter("cloud_scale_b", clouds_scale_b)
-    _sky_material.set_shader_parameter("cloud_plane_height", clouds_plane_height)
-    _sky_material.set_shader_parameter("cloud_plane_curve", clouds_plane_curve)
-    _sky_material.set_shader_parameter("cloud_warp_strength", clouds_warp_strength)
-    _sky_material.set_shader_parameter("cloud_coverage", clouds_coverage)
-    _sky_material.set_shader_parameter("cloud_softness", clouds_softness)
+    # what every clouds' sky takes of Skydome: their opacity and their colours (the rest is theirs,
+    # _sync_clouds())
     _sky_material.set_shader_parameter("cloud_opacity", clouds_opacity)
-    _sky_material.set_shader_parameter("cloud_horizon_fade", clouds_horizon_fade)
-    _sky_material.set_shader_parameter("cloud_top_fade", clouds_top_fade)
     _sky_material.set_shader_parameter("cloud_light_color", clouds_color_light)
     _sky_material.set_shader_parameter("cloud_shadow_color", clouds_color_shadow)
-    _sky_material.set_shader_parameter("cloud_forward_scatter", clouds_forward_scatter)
-    _sky_material.set_shader_parameter("cloud_backscatter", clouds_backscatter)
     _sky_material.set_shader_parameter("sun_cloud_occlusion", clouds_sun_occlusion)
 
     _sky_material.set_shader_parameter("cloud_time", _get_cloud_time_value())
-    _sky_material.set_shader_parameter("cloud_motion_time", _cloud_motion_time)
-    _sky_material.set_shader_parameter("cloud_evolution_time", _cloud_evolution_time)
-    _sky_material.set_shader_parameter("cloud_motion_scale", clouds_motion_scale)
-    _sky_material.set_shader_parameter("cloud_evolution_strength", clouds_evolution_strength)
-    _sky_material.set_shader_parameter("cloud_evolution_scale", clouds_evolution_scale)
-    _apply_cloud_wind_params()
-    if clouds_renderer:
-        clouds_renderer.sync(self, _sky_material)
+    _sync_clouds()
 
 func _get_cloud_time_value() -> float:
     return ((float(_rendered_day - 1) * 24.0) + _rendered_time) * clouds_time_scale
@@ -1199,8 +1159,7 @@ func _get_rendered_total_hours() -> float:
 
 func _reset_cloud_time_tracking() -> void:
     _last_cloud_total_hours = _get_rendered_total_hours()
-    _set_shader_param("cloud_motion_time", _cloud_motion_time)
-    _set_shader_param("cloud_evolution_time", _cloud_evolution_time)
+    _sync_clouds()
 
 
 func _update_cloud_time(current_total_hours: float = INF) -> void:
@@ -1215,8 +1174,7 @@ func _update_cloud_time(current_total_hours: float = INF) -> void:
         _cloud_evolution_time += delta_world_seconds * clouds_evolution_speed
 
     _set_shader_param("cloud_time", _get_cloud_time_value())
-    _set_shader_param("cloud_motion_time", _cloud_motion_time)
-    _set_shader_param("cloud_evolution_time", _cloud_evolution_time)
+    _sync_clouds()
 
 
 func _get_cloud_wind_speed() -> float:
@@ -1229,14 +1187,19 @@ func _get_cloud_wind_direction() -> Vector2:
     return clouds_wind_direction.normalized()
 
 
-func _apply_cloud_wind_params() -> void:
-    _sky_material.set_shader_parameter("cloud_wind_direction", _get_cloud_wind_direction())
-    _sky_material.set_shader_parameter("cloud_wind_speed", _get_cloud_wind_speed())
-
-
 func _update_cloud_wind() -> void:
+    _sync_clouds()
+
+
+## The clouds drawn: clouds_renderer's, or Skydome's own (SkydomeClouds2D)
+func _get_clouds() -> SkydomeClouds:
+    return clouds_renderer if clouds_renderer else _own_clouds
+
+
+## The clouds' own uniforms set again (SkydomeClouds.sync()): their state of Skydome's changed
+func _sync_clouds() -> void:
     if _sky_material:
-        _apply_cloud_wind_params()
+        _get_clouds().sync(self, _sky_material)
 
 
 func _request_time_update(snap: bool = false) -> void:
@@ -1479,8 +1442,7 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     var current_vol_fog_density := clampf(base_vol_fog_density + current_vol_fog_density_boost, 0.0, 1.0)
 
     var cloud_mix := clampf(current_cloud_overcast_intensity * 0.8, 0.0, 1.0)
-    if clouds_renderer:
-        cloud_mix = maxf(cloud_mix, clampf(clouds_renderer.get_storm_darkening(self), 0.0, 1.0))
+    cloud_mix = maxf(cloud_mix, clampf(_get_clouds().get_storm_darkening(self), 0.0, 1.0))
     var final_cloud_density := _get_final_cloud_density()
     var sky_overcast := clampf(maxf(maxf(final_cloud_density, cloud_mix), weather_overcast), 0.0, 1.0)
     _sky_overcast = sky_overcast
@@ -1491,7 +1453,6 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     var sunset_seen := _sunset_blend * (1.0 - overcast_veil)
     _set_shader_param("overcast", sky_overcast)
 
-    _set_shader_param("cloud_coverage", final_cloud_density)
     _set_shader_param("cloud_opacity", lerpf(clouds_opacity, maxf(clouds_opacity, 0.95), clampf(sky_overcast * 0.85, 0.0, 1.0)))
     _set_shader_param("cloud_shadow_color", clouds_color_shadow)
     _set_shader_param("cloud_light_color", clouds_color_light.lerp(Color(0.66, 0.7, 0.78, 1.0), clampf(sky_overcast * 0.35, 0.0, 1.0)))
@@ -1509,8 +1470,7 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
         if _is_daytime:
             light.light_color = day_light_color.lerp(sunset_light_color, sunset_seen)
         var light_occlusion := clouds_light_occlusion
-        if clouds_renderer:
-            light_occlusion *= clampf(clouds_renderer.get_light_occlusion_share(self), 0.0, 1.0)
+        light_occlusion *= clampf(_get_clouds().get_light_occlusion_share(self), 0.0, 1.0)
         # the clouds' share less what their shadows on the ground take; a weather's in full
         _sun_transmission = 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
             weather_overcast * clouds_light_occlusion)
@@ -1589,8 +1549,7 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
 
     # the fog brightened towards the sun, by the sunrise's and the sunset's light the more
     env.fog_sun_scatter = fog_sun_scatter + fog_sunset_sun_scatter * sunset_seen
-    if clouds_renderer and _sky_material:
-        clouds_renderer.sync(self, _sky_material)
+    _sync_clouds()
 
 
 ## sun_disk_radius and sun_angular_radius of the sun drawn now: sun_disk_size, larger by the season
@@ -1692,13 +1651,13 @@ func _get_or_create_compositor() -> Compositor:
     return compositor
 
 
-## The clouds_renderer's compositor effects, after Skydome's own
+## The clouds' compositor effects (_get_clouds()), after Skydome's own
 func _install_clouds_renderer_effects() -> void:
     _remove_clouds_renderer_effects()
-    if not clouds_renderer or not _is_ready:
+    if not _is_ready:
         return
     var added: Array[CompositorEffect] = []
-    added.assign(clouds_renderer.get_compositor_effects(self))
+    added.assign(_get_clouds().get_compositor_effects(self))
     if added.is_empty():
         return
     var compositor := _get_or_create_compositor()
@@ -1841,6 +1800,16 @@ func get_cloud_wind_speed() -> float:
 ## The clouds' own time, as they drift and change: what Skydome's clouds are moved by
 func get_cloud_motion_time() -> float:
     return _cloud_motion_time
+
+
+## The clouds' own time of change: what Skydome's clouds take their shape anew by
+func get_cloud_evolution_time() -> float:
+    return _cloud_evolution_time
+
+
+## How much of the sky the clouds cover (0 - 1): the clouds drawn's, as the light takes it
+func get_cloud_cover() -> float:
+    return _get_final_cloud_density()
 
 
 func get_sky_material() -> ShaderMaterial:

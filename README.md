@@ -63,8 +63,9 @@ The sun shafts follow the sun or the moon drawn, not the light.
 
 ## Clouds of your own
 
-Skydome draws its own clouds (`clouds_2d.gdshaderinc`, the `clouds_*` properties). Another kind of
-clouds is a `SkydomeClouds` resource set as `Skydome.clouds_renderer`:
+Skydome draws its clouds through a `SkydomeClouds` resource: its own (`SkydomeClouds2D`,
+`clouds_2d.gdshaderinc`, the `clouds_*` properties) unless another kind is set as
+`Skydome.clouds_renderer`:
 
 * `get_sky_shader()` - a sky shader with the clouds between the sky's two includes:
 
