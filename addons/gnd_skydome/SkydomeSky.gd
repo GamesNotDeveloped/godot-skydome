@@ -85,7 +85,9 @@ var _editor_access = null
 var _clouds_renderer_effects: Array[CompositorEffect] = []
 var _sky_overcast: float = 0.0
 # The share of the sun's (the moon's) direct light the clouds let through (_apply_state_params()):
-# its shadows soften as it dims (_apply_cloud_light_response())
+# its shadows soften as it dims (_apply_cloud_light_response()), and the sun seen through a cloud
+# and mirrored in the sky's reflections is as bright as its light (the sky shader's
+# sun_transmission)
 var _sun_transmission: float = 1.0
 ## The sun's disk as the sky draws it: its radius as 1 - the cosine of its angle (the shader's
 ## sun_disk_radius), and the angle itself [rad] - for what mirrors the sun to mirror it as large
@@ -1145,6 +1147,7 @@ func _sync_sky_shader_params() -> void:
     _sky_material.set_shader_parameter("cloud_light_color", clouds_color_light)
     _sky_material.set_shader_parameter("cloud_shadow_color", clouds_color_shadow)
     _sky_material.set_shader_parameter("sun_cloud_occlusion", clouds_sun_occlusion)
+    _sky_material.set_shader_parameter("sun_transmission", _sun_transmission)
 
     _sky_material.set_shader_parameter("cloud_time", _get_cloud_time_value())
     _sync_clouds()
@@ -1466,18 +1469,21 @@ func _apply_state_params(env: Environment, light: DirectionalLight3D) -> void:
     _set_shader_param("moon_size", lerpf(moon_size, moon_size * 0.72, cloud_mix * 0.85))
     _set_shader_param("moon_glow_strength", maxf(0.0, moon_glow_strength * (1.0 - cloud_mix * 0.96)))
 
+    var light_occlusion := clouds_light_occlusion
+    light_occlusion *= clampf(_get_clouds().get_light_occlusion_share(self), 0.0, 1.0)
+    # the clouds' share less what their shadows on the ground take; a weather's in full
+    _sun_transmission = 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
+        weather_overcast * clouds_light_occlusion)
+    # the shadows on the ground take their share of a broken cover's light only: a heavy one hides
+    # the sun itself, its glint off water and glass too
+    _sun_transmission *= 1.0 - smoothstep(minf(clouds_sun_hidden_start, clouds_sun_hidden_end),
+        maxf(clouds_sun_hidden_start, clouds_sun_hidden_end), sky_overcast)
+    # the sun seen through the clouds as bright as its light is (sky_atmosphere.gdshaderinc)
+    _set_shader_param("sun_transmission", _sun_transmission)
+
     if light:
         if _is_daytime:
             light.light_color = day_light_color.lerp(sunset_light_color, sunset_seen)
-        var light_occlusion := clouds_light_occlusion
-        light_occlusion *= clampf(_get_clouds().get_light_occlusion_share(self), 0.0, 1.0)
-        # the clouds' share less what their shadows on the ground take; a weather's in full
-        _sun_transmission = 1.0 - maxf(maxf(final_cloud_density, cloud_mix) * light_occlusion,
-            weather_overcast * clouds_light_occlusion)
-        # the shadows on the ground take their share of a broken cover's light only: a heavy one hides
-        # the sun itself, its glint off water and glass too
-        _sun_transmission *= 1.0 - smoothstep(minf(clouds_sun_hidden_start, clouds_sun_hidden_end),
-            maxf(clouds_sun_hidden_start, clouds_sun_hidden_end), sky_overcast)
         light.light_energy *= _sun_transmission
         light.light_energy += current_lightning_flash * lerpf(storm_flash_light_energy_clear, storm_flash_light_energy_overcast, sky_overcast)
         light.light_color = light.light_color.lerp(Color(0.58, 0.62, 0.68, 1.0), overcast_cooling * 0.94)

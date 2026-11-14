@@ -74,7 +74,11 @@ Skydome draws its clouds through a `SkydomeClouds` resource: its own (`SkydomeCl
       // the clouds' uniforms and
       // vec4 clouds(vec3 dir, vec2 pixel, float day_blend, float sunset_blend)
       // - their colour premultiplied by how much they cover (alpha); sunset_blend is the
-      // sunset as much as the cover shows it, nothing of it under a heavy one
+      // sunset as much as the cover shows it, nothing of it under a heavy one, and
+      // float clouds_sun_transmission(vec3 dir, float cloud_mask)
+      // - how much of the sun behind them they let through besides the 1 - cloud_mask
+      // their cover leaves: none for clouds whose alpha is their own transmittance, the
+      // sky's sun_transmission (the light's share) for a layer of no thickness
       #include "res://addons/gnd_skydome/sky_atmosphere.gdshaderinc"
 
   With `#define CLOUDS_HALF_RES` (and `render_mode use_half_res_pass`) the clouds are drawn in

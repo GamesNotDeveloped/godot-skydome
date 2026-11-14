@@ -1,8 +1,8 @@
 // The sun as the sky draws it in the direction dir - its disk, flattened and blurred low over the
-// horizon, its halo and the glow about it - in active_sun_color, as much of it as sky_visibility
+// horizon, its halo and the glow about it - in active_sun_color, as much of it as visibility
 // lets through. The sky and its radiance cubemap both take it: what reflects the sky reflects
 // the sun as it is drawn, not as a speck of the directional light alone.
-vec3 sun_light(vec3 dir, float sun_alt, float sun_dot, vec3 active_sun_color, float sky_visibility) {
+vec3 sun_light(vec3 dir, float sun_alt, float sun_dot, vec3 active_sun_color, float visibility) {
 	vec3 sun_dir_norm = custom_sun_dir;
 	vec3 sun_right = normalize(cross(vec3(0.0, 1.0, 0.0), sun_dir_norm));
 	if (length(sun_right) < 0.001) sun_right = vec3(1.0, 0.0, 0.0);
@@ -37,7 +37,7 @@ vec3 sun_light(vec3 dir, float sun_alt, float sun_dot, vec3 active_sun_color, fl
 
 	// Sun extinction at horizon (solid drawing)
 	float sun_extinction = mix(1.0, 0.2, pow(1.0 - saturate(sun_alt * 5.0 + 0.1), 2.0));
-	return sun_body * (disk * sun_disk_strength * sun_extinction + halo + atmosphere) * sky_visibility;
+	return sun_body * (disk * sun_disk_strength * sun_extinction + halo + atmosphere) * visibility;
 }
 
 // The sky (sky()): the day's, the sunset's and the night's gradient, the stars, the haze, the
@@ -120,13 +120,14 @@ void sky() {
 
 	// The radiance cubemap (and the ambient light from it) takes the gradient and the sun, so that
 	// what reflects the sky - water above all - mirrors the sun's disk and its glow; it has no clouds
-	// (the half resolution pass's), so the sun goes behind the cover as the cover closes, and no fog
-	// (Godot fogs only the sky drawn), so the sun goes behind the fog by sun_fog_visibility
+	// (the half resolution pass's), so the sun is as bright as the cover lets its light through
+	// (sun_transmission), and no fog (Godot fogs only the sky drawn), so the sun goes behind the fog
+	// by sun_fog_visibility
 	if (AT_CUBEMAP_PASS) {
 		COLOR = mix(night_base, day_base, day_blend);
 		if (high_quality_sky) {
 			COLOR += sun_light(dir, sun_alt, sun_dot, active_sun_color,
-					(1.0 - overcast_veil * sun_cloud_occlusion) * sun_fog_visibility);
+					sun_transmission * sun_fog_visibility);
 		} else {
 			COLOR += sun_color * smoothstep(0.998, 1.0, sun_dot) * 5.0 * sun_fog_visibility;
 		}
@@ -202,7 +203,10 @@ void sky() {
 	// lighting the rain is whoever sets rainbow_intensity's to tell
 	float rainbow_visibility = rainbow_intensity * rainbow_day_visibility * rainbow_altitude_visibility * rainbow_horizon_visibility;
 
-	final_color += sun_light(dir, sun_alt, sun_dot, active_sun_color, sky_visibility);
+	// the sun in a gap of the clouds whole, through a cloud as much as the clouds let it through
+	// (clouds_sun_transmission(), added over the cloud below)
+	vec3 sun_seen = sun_light(dir, sun_alt, sun_dot, active_sun_color, 1.0);
+	final_color += sun_seen;
 
 	// Moon
 	float moon_dot = dot(dir, custom_moon_dir);
@@ -264,7 +268,8 @@ void sky() {
 	final_color += glow_color * moon_visibility;
 
 	// Clouds (premultiplied, the moon's corona in a thin one theirs)
-	final_color = final_color * (1.0 - cloud_mask) + sky_clouds.rgb;
+	final_color = final_color * (1.0 - cloud_mask) + sky_clouds.rgb
+			+ sun_seen * cloud_mask * clouds_sun_transmission(dir, cloud_mask);
 
 	// The rainbow, over the clouds it is seen against
 	if (rainbow_visibility > 0.001) {

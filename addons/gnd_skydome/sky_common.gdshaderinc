@@ -3,7 +3,8 @@
 //
 //     shader_type sky;
 //     #include "res://addons/gnd_skydome/sky_common.gdshaderinc"
-//     #include "<the clouds: uniforms and vec4 clouds(dir, pixel, day_blend, sunset_blend)>"
+//     #include "<the clouds: uniforms, vec4 clouds(dir, pixel, day_blend, sunset_blend) and
+//               float clouds_sun_transmission(dir, cloud_mask)>"
 //     #include "res://addons/gnd_skydome/sky_atmosphere.gdshaderinc"
 
 uniform sampler2D moon_tex : source_color, filter_linear_mipmap, repeat_disable;
@@ -90,6 +91,9 @@ uniform bool high_quality_sky = true;
 
 // how much of the sun's light a cloud in front of it takes away (Skydome: clouds_sun_occlusion)
 uniform float sun_cloud_occlusion : hint_range(0.0, 1.0) = 0.8;
+// the share of the sun's direct light the cover lets through - its light's (SkydomeSky's
+// _sun_transmission): the sun seen through a cloud and mirrored is as bright as it lights the ground
+uniform float sun_transmission : hint_range(0.0, 1.0) = 1.0;
 
 uniform vec3 custom_sun_dir = vec3(0.0, 1.0, 0.0);
 uniform vec3 custom_moon_dir = vec3(0.0, -1.0, 0.0);
