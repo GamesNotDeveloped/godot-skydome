@@ -101,6 +101,14 @@ falling, their haze. A heavy cover greys the sunrise and the sunset out: the sky
 colours only as much as the cover breaks, and a band of it stays low on the sun's side while the
 cover is not whole.
 
+## Below the horizon
+
+The sky draws the sun, the moon and the stars on its whole sphere, under the horizon too, where the
+ground hides them in a scene that has one. Where nothing covers the lower half of the sky - through
+a see-through water with no bed under it, for one - a set moon is seen there. The project setting
+`gnd_skydome/sky/show_below_horizon` (`true` by default) turned off cuts their disks and the stars
+by the horizon and fades their glows out just under it.
+
 ## Tests
 
 GUT tests in `addons/gnd_skydome/tests`, run in the demo project (GUT is the `vendor/gut` submodule):

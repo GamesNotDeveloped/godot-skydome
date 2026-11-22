@@ -84,9 +84,14 @@ void sky() {
 	else {
 	vec3 final_color = mix(night_base, day_base, day_blend);
 	float sun_dot = dot(dir, custom_sun_dir);
+	// What the ground leaves of the sun, the moon and the stars in this direction: all of them, or
+	// with show_below_horizon off their disks and the stars cut by the horizon and their glows
+	// fading out just under it
+	float body_above_horizon = show_below_horizon ? 1.0 : smoothstep(-HORIZON_BODY_EDGE, 0.0, dir.y);
+	float glow_above_horizon = show_below_horizon ? 1.0 : smoothstep(-HORIZON_GLOW_FADE, 0.0, dir.y);
 
 	if (!high_quality_sky) {
-		float sun_disk = smoothstep(0.998, 1.0, sun_dot);
+		float sun_disk = smoothstep(0.998, 1.0, sun_dot) * body_above_horizon;
 		final_color += sun_color * sun_disk * 5.0;
 	} else {
 
@@ -110,7 +115,7 @@ void sky() {
 		float twinkle = mix(0.3, 1.0, sin(cloud_time * 3.0 + star_h * 100.0) * 0.5 + 0.5);
 		float sun_star_occlusion = smoothstep(0.92, 0.9985, sun_dot);
 		float stars = star_intensity * twinkle * 8.0 * pow(1.0 - zenith_t, 2.0) * (1.0 - sun_star_occlusion);
-		final_color += stars_color * stars * stars_energy * (1.0 - day_blend);
+		final_color += stars_color * stars * stars_energy * (1.0 - day_blend) * body_above_horizon;
 	}
 
 #ifdef CLOUDS_HALF_RES
@@ -186,9 +191,9 @@ void sky() {
 
 	// Sun extinction at horizon (solid drawing)
 	float sun_extinction = mix(1.0, 0.2, pow(1.0 - saturate(sun_alt * 5.0 + 0.1), 2.0));
-	final_color += sun_body * disk * sky_visibility * sun_disk_strength * sun_extinction;
-	final_color += sun_body * halo * sky_visibility;
-	final_color += sun_body * atmosphere * sky_visibility;
+	final_color += sun_body * disk * sky_visibility * sun_disk_strength * sun_extinction * body_above_horizon;
+	final_color += sun_body * halo * sky_visibility * glow_above_horizon;
+	final_color += sun_body * atmosphere * sky_visibility * glow_above_horizon;
 
 	// Moon
 	float moon_dot = dot(dir, custom_moon_dir);
@@ -233,13 +238,14 @@ void sky() {
 			// W dzien oswietlony fragment ok. 60-80% (leciutko przebija niebo), nieoswietlony 0% (niewidoczny calkiem)
 			float lit_alpha = clamp(1.0 - day_blend * 0.3, 0.0, 1.0);
 			float unlit_alpha = 0.25 * (1.0 - day_blend);
-			moon_alpha = mix(unlit_alpha, lit_alpha, light_intensity) * moon_mask_val;
+			moon_alpha = mix(unlit_alpha, lit_alpha, light_intensity) * moon_mask_val * body_above_horizon;
 		}
 	}
 
 	float moon_illumination = smoothstep(-0.5, 0.5, dot(custom_sun_dir, -custom_moon_dir));
 	float glow_intensity = pow(saturate(moon_dot), 1.0 / (0.1 * moon_glow_size)) * max(0.0, moon_glow_strength);
-	vec3 glow_color = moon_color * glow_intensity * (0.1 + 0.9 * moon_illumination) * (1.0 - day_blend * 0.8);
+	vec3 glow_color = moon_color * glow_intensity * (0.1 + 0.9 * moon_illumination) * (1.0 - day_blend * 0.8)
+			* glow_above_horizon;
 
 	// The moon's disc is far brighter than the clouds (bright_color), so the share a cloud lets
 	// through falls off with its thickness, not linearly - 10% of the disc showed through a full

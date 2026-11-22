@@ -1075,6 +1075,7 @@ func _sync_sky_shader_params() -> void:
     if not _sky_material:
         return
 
+    _sky_material.set_shader_parameter("show_below_horizon", SkydomeSettings.get_show_below_horizon())
     _sky_material.set_shader_parameter("lower_sky_color", shader_lower_sky_color)
     _sky_material.set_shader_parameter("horizon_color", shader_horizon_color)
     _sky_material.set_shader_parameter("zenith_color", shader_zenith_color)

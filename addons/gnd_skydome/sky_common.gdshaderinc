@@ -83,6 +83,13 @@ group_uniforms Moon;
 	uniform float moon_corona_strength : hint_range(0.0, 2.0) = 0.2;
 
 uniform bool high_quality_sky = true;
+// Whether the sun, the moon and the stars are drawn below the horizon too (SkydomeSettings:
+// SHOW_BELOW_HORIZON) - off, the ground hides them: their disks and the stars cut by the
+// horizon within HORIZON_BODY_EDGE, their glows fading out within HORIZON_GLOW_FADE under it (as
+// the sine of the elevation)
+uniform bool show_below_horizon = true;
+const float HORIZON_BODY_EDGE = 0.002;
+const float HORIZON_GLOW_FADE = 0.05;
 
 // how much of the sun's light a cloud in front of it takes away (Skydome: clouds_sun_occlusion)
 uniform float sun_cloud_occlusion : hint_range(0.0, 1.0) = 0.8;
