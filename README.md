@@ -8,6 +8,8 @@
 
 * time of the day
 * day of the year
+* the sun, the moon with its phase and the stars where they stand for the year, the day, the
+  latitude and the longitude
 * sun and moon discs
 * stars
 * clouds

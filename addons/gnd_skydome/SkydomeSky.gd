@@ -88,17 +88,30 @@ func _success(x):
     print_rich("[color=green][Skydome][/color] "+x)
 
 @export_group("Time & Date")
-@export_range(1, 365) var day_of_year: int = 180:
+@export_range(1, 366) var day_of_year: int = 180:
     set(v):
         day_of_year = v
         _request_time_update()
+## The local solar time at longitude [h]
 @export_range(0.0, 24.0) var time_of_day: float = 12.0:
     set(v):
         time_of_day = v
         _request_time_update()
+## The year day_of_year is of: the moon's phase and the sun's and the stars' places are those of
+## that date
+@export var year: int = 2026:
+    set(v):
+        year = v
+        _update_sun_transform()
 @export_range(-90.0, 90.0) var latitude: float = 50.0:
     set(v):
         latitude = v
+        _update_sun_transform()
+## East of Greenwich positive [deg]: the universal time is behind time_of_day by longitude / 15
+## hours
+@export_range(-180.0, 180.0) var longitude: float = 0.0:
+    set(v):
+        longitude = v
         _update_sun_transform()
 @export var time_transition_duration: float = 1.0
 ## How the light turns with the time; the sky, the light's colour and its energy follow every change
@@ -1299,21 +1312,16 @@ func _follow_light_time() -> void:
 
 ## Where the sun stands at [param total_hours] (day * 24 + hour)
 func _get_sun_direction_at(total_hours: float) -> Vector3:
-    var day_current := total_hours / 24.0
-    var theta_sun := deg_to_rad(360.0 / 365.0 * (day_current + 10.0))
-    var declination_sun := deg_to_rad(-23.45) * cos(theta_sun)
-    var hour_angle := deg_to_rad(15.0 * (fmod(total_hours, 24.0) - 12.0))
-    return _get_body_direction(hour_angle, declination_sun)
+    var d := SkydomeAstronomy.get_day_number(year, total_hours, longitude)
+    var sun := SkydomeAstronomy.get_sun_equatorial(d)
+    return _get_body_direction(SkydomeAstronomy.get_local_sidereal_time(d, longitude) - sun.x, sun.y)
 
 
 ## Where the moon stands at [param total_hours] (day * 24 + hour)
 func _get_moon_direction_at(total_hours: float) -> Vector3:
-    var day_current := total_hours / 24.0
-    var moon_phase := fmod(day_current / 29.53, 1.0)
-    var theta_moon := deg_to_rad(360.0 / 365.0 * (day_current + 10.0)) - moon_phase * TAU
-    var declination_moon := deg_to_rad(-23.45) * cos(theta_moon) + deg_to_rad(5.14) * sin(theta_moon)
-    var moon_hour_angle := deg_to_rad(15.0 * (fmod(total_hours, 24.0) - 12.0)) - moon_phase * TAU
-    return _get_body_direction(moon_hour_angle, declination_moon)
+    var d := SkydomeAstronomy.get_day_number(year, total_hours, longitude)
+    var moon := SkydomeAstronomy.get_moon_equatorial(d, latitude, longitude)
+    return _get_body_direction(SkydomeAstronomy.get_local_sidereal_time(d, longitude) - moon.x, moon.y)
 
 
 func _get_body_direction(hour_angle: float, declination: float) -> Vector3:
@@ -1329,15 +1337,14 @@ func _update_sun_transform() -> void:
         return
 
     var light = _get_directional_light()
-    var day_current = float(_rendered_day) + _rendered_time / 24.0
-    var moon_phase = fmod( day_current / 29.53, 1.0)
-    moon_phase_debug = moon_phase
+    var d := SkydomeAstronomy.get_day_number(year, _get_rendered_total_hours(), longitude)
+    moon_phase_debug = SkydomeAstronomy.get_moon_age(d)
     var lat_rad = deg_to_rad(latitude)
 
     var sun_dir := _get_sun_direction_at(_get_rendered_total_hours())
     var moon_dir := _get_moon_direction_at(_get_rendered_total_hours())
 
-    var sidereal_time = deg_to_rad( day_current * 360.0 + _rendered_time * 15.0)
+    var sidereal_time := SkydomeAstronomy.get_local_sidereal_time(d, longitude)
     var celestial_basis = Basis()
     celestial_basis = celestial_basis.rotated(Vector3.RIGHT, lat_rad - PI / 2.0)
     celestial_basis = celestial_basis.rotated(Vector3.UP, -sidereal_time)

@@ -24,18 +24,31 @@ signal param_changed(name: StringName)
 var _rid: RID = SkydomeServer.skydome_create()
 
 @export_group("Time & Date")
-@export_range(1, 365) var day_of_year: int = 180:
+@export_range(1, 366) var day_of_year: int = 180:
     set(v):
         day_of_year = v
         _set_param(&"day_of_year", v)
+## The local solar time at longitude [h]
 @export_range(0.0, 24.0) var time_of_day: float = 12.0:
     set(v):
         time_of_day = v
         _set_param(&"time_of_day", v)
+## The year day_of_year is of: the moon's phase and the sun's and the stars' places are those of
+## that date
+@export var year: int = 2026:
+    set(v):
+        year = v
+        _set_param(&"year", v)
 @export_range(-90.0, 90.0) var latitude: float = 50.0:
     set(v):
         latitude = v
         _set_param(&"latitude", v)
+## East of Greenwich positive [deg]: the universal time is behind time_of_day by longitude / 15
+## hours
+@export_range(-180.0, 180.0) var longitude: float = 0.0:
+    set(v):
+        longitude = v
+        _set_param(&"longitude", v)
 @export var time_transition_duration: float = 1.0:
     set(v):
         time_transition_duration = v
